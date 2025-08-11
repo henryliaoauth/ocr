@@ -62,7 +62,7 @@ main {
 .upload-area {
     border: 3px dashed #d1d5db;
     border-radius: 12px;
-    padding: 60px 20px;
+    padding: 10px 20px;
     text-align: center;
     background: #f9fafb;
     transition: all 0.3s ease;
@@ -116,7 +116,7 @@ main {
 
 .image-preview img {
     max-width: 100%;
-    max-height: 400px;
+    max-height: 200px;
     border-radius: 8px;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }

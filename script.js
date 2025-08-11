@@ -108,7 +108,7 @@ class OCRApp {
         try {
             this.hideAllSections();
             this.loadingSection.style.display = 'block';
-
+            this.resultSection.style.display = 'none';
             // 轉換圖片為 Base64
             const base64Data = await this.fileToBase64(this.currentFile);
             
