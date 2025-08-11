@@ -1,0 +1,17 @@
+# Frontend dependencies for Base64 API OCR Interface
+# 前端Base64 API OCR界面依賴
+
+# Web interface
+gradio>=4.0.0
+
+# Image processing
+Pillow>=9.0.0
+
+# HTTP requests
+requests>=2.25.0
+
+# Data processing  
+numpy>=1.21.0
+
+# Optional: For PDF support (if needed)
+# PyMuPDF>=1.20.0
