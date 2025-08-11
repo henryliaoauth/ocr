@@ -248,9 +248,9 @@ class OCRApp {
     }
 
     hideAllSections() {
-        this.previewSection.style.display = 'none';
+        // this.previewSection.style.display = 'none';
         this.loadingSection.style.display = 'none';
-        this.resultSection.style.display = 'none';
+        // this.resultSection.style.display = 'none';
         this.errorSection.style.display = 'none';
     }
 }

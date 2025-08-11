@@ -13,7 +13,7 @@ body {
 }
 
 .container {
-    max-width: 800px;
+    max-width: 1200px;
     margin: 0 auto;
     padding: 20px;
 }
@@ -40,6 +40,19 @@ main {
     border-radius: 12px;
     padding: 40px;
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+    display: flex;
+    gap: 40px;
+    align-items: flex-start;
+}
+
+.left-panel {
+    flex: 1;
+    min-width: 0;
+}
+
+.right-panel {
+    flex: 1;
+    min-width: 0;
 }
 
 .upload-section {
@@ -156,7 +169,7 @@ main {
 
 .result-content textarea {
     width: 100%;
-    min-height: 200px;
+    min-height: 400px;
     padding: 20px;
     border: 2px solid #e5e7eb;
     border-radius: 8px;
@@ -256,6 +269,13 @@ footer {
     
     main {
         padding: 20px;
+        flex-direction: column;
+        gap: 20px;
+    }
+    
+    .left-panel,
+    .right-panel {
+        flex: none;
     }
     
     header h1 {

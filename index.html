@@ -13,49 +13,53 @@
         </header>
 
         <main>
-            <div class="upload-section">
-                <div class="upload-area" id="uploadArea">
-                    <div class="upload-content">
-                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                            <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z" fill="currentColor"/>
-                        </svg>
-                        <h3>上傳圖片</h3>
-                        <p>拖曳圖片到這裡或點擊選擇檔案</p>
-                        <p class="file-types">支援 JPG, PNG, GIF, BMP</p>
+            <div class="left-panel">
+                <div class="upload-section">
+                    <div class="upload-area" id="uploadArea">
+                        <div class="upload-content">
+                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z" fill="currentColor"/>
+                            </svg>
+                            <h3>上傳圖片</h3>
+                            <p>拖曳圖片到這裡或點擊選擇檔案</p>
+                            <p class="file-types">支援 JPG, PNG, GIF, BMP</p>
+                        </div>
+                        <input type="file" id="fileInput" accept="image/*" hidden>
                     </div>
-                    <input type="file" id="fileInput" accept="image/*" hidden>
+                </div>
+
+                <div class="preview-section" id="previewSection" style="display: none;">
+                    <h3>圖片預覽</h3>
+                    <div class="image-preview">
+                        <img id="previewImage" alt="預覽圖片">
+                    </div>
+                    <button class="btn-analyze" id="analyzeBtn">開始分析</button>
                 </div>
             </div>
 
-            <div class="preview-section" id="previewSection" style="display: none;">
-                <h3>圖片預覽</h3>
-                <div class="image-preview">
-                    <img id="previewImage" alt="預覽圖片">
+            <div class="right-panel">
+                <div class="loading-section" id="loadingSection" style="display: none;">
+                    <div class="loading-spinner"></div>
+                    <p>正在分析圖片，請稍候...</p>
                 </div>
-                <button class="btn-analyze" id="analyzeBtn">開始分析</button>
-            </div>
 
-            <div class="loading-section" id="loadingSection" style="display: none;">
-                <div class="loading-spinner"></div>
-                <p>正在分析圖片，請稍候...</p>
-            </div>
-
-            <div class="result-section" id="resultSection" style="display: none;">
-                <h3>識別結果</h3>
-                <div class="result-content">
-                    <textarea id="resultText" readonly placeholder="識別的文字會顯示在這裡..."></textarea>
+                <div class="result-section" id="resultSection">
+                    <h3>識別結果</h3>
+                    <div class="result-content">
+                        <textarea id="resultText" readonly placeholder="識別的文字會顯示在這裡..."></textarea>
+                    </div>
+                    <div class="result-actions">
+                        <button class="btn-copy" id="copyBtn">複製文字</button>
+                        <button class="btn-reset" id="resetBtn">重新上傳</button>
+                    </div>
                 </div>
-                <div class="result-actions">
-                    <button class="btn-copy" id="copyBtn">複製文字</button>
-                    <button class="btn-reset" id="resetBtn">重新上傳</button>
-                </div>
-            </div>
 
-            <div class="error-section" id="errorSection" style="display: none;">
-                <div class="error-content">
-                    <h3>發生錯誤</h3>
-                    <p id="errorMessage"></p>
-                    <button class="btn-reset" id="errorResetBtn">重試</button>
+                <div class="error-section" id="errorSection" style="display: none;">
+                    <div class="error-content">
+                        <h3>發生錯誤</h3>
+                        <p id="errorMessage"></p>
+                        <button class="btn-reset" id="errorResetBtn">重試</button>
+                    </div>
                 </div>
             </div>
         </main>
