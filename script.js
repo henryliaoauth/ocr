@@ -20,12 +20,14 @@ class OCRApp {
         this.analyzeBtn = document.getElementById('analyzeBtn');
         this.loadingSection = document.getElementById('loadingSection');
         this.resultSection = document.getElementById('resultSection');
-        this.resultText = document.getElementById('resultText');
+        this.formattedView = document.getElementById('formattedView');
+        this.markdownView = document.getElementById('markdownView');
         this.copyBtn = document.getElementById('copyBtn');
         this.resetBtn = document.getElementById('resetBtn');
         this.errorSection = document.getElementById('errorSection');
         this.errorMessage = document.getElementById('errorMessage');
         this.errorResetBtn = document.getElementById('errorResetBtn');
+        this.currentMarkdown = '';
     }
 
     bindEvents() {
@@ -43,6 +45,11 @@ class OCRApp {
         this.copyBtn.addEventListener('click', this.copyResult.bind(this));
         this.resetBtn.addEventListener('click', this.reset.bind(this));
         this.errorResetBtn.addEventListener('click', this.reset.bind(this));
+        
+        // Tab 切換事件
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.addEventListener('click', this.switchTab.bind(this));
+        });
     }
 
     handleDragOver(e) {
@@ -201,17 +208,75 @@ class OCRApp {
         }
     }
 
+    parseMarkdownToHTML(markdown) {
+        // 設定 marked 選項
+        marked.setOptions({
+            breaks: true,
+            gfm: true,
+            tables: true,
+            sanitize: false,
+            smartLists: true,
+            smartypants: true,
+            highlight: function(code, lang) {
+                if (lang && hljs.getLanguage(lang)) {
+                    try {
+                        return hljs.highlight(code, { language: lang }).value;
+                    } catch (e) {}
+                }
+                return hljs.highlightAuto(code).value;
+            }
+        });
+        
+        // 使用 marked 解析 markdown
+        return marked.parse(markdown);
+    }
+    
     showResult(text) {
         this.hideAllSections();
         // 保持圖片預覽顯示
         this.previewSection.style.display = 'block';
-        this.resultText.value = text;
+        
+        // 儲存 markdown 原文
+        this.currentMarkdown = text;
+        this.markdownView.value = text;
+        
+        // 解析並顯示格式化的 HTML
+        const htmlContent = this.parseMarkdownToHTML(text);
+        this.formattedView.innerHTML = htmlContent;
+        
         this.resultSection.style.display = 'block';
+    }
+    
+    switchTab(e) {
+        const targetView = e.target.dataset.view;
+        
+        // 更新標籤狀態
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.classList.remove('active');
+        });
+        e.target.classList.add('active');
+        
+        // 切換視圖
+        document.querySelectorAll('.result-view').forEach(view => {
+            view.classList.remove('active');
+        });
+        
+        if (targetView === 'formatted') {
+            this.formattedView.classList.add('active');
+        } else {
+            this.markdownView.classList.add('active');
+        }
     }
 
     async copyResult() {
         try {
-            await navigator.clipboard.writeText(this.resultText.value);
+            // 複製當前顯示的內容
+            const activeTab = document.querySelector('.tab-btn.active');
+            const textToCopy = activeTab.dataset.view === 'formatted' 
+                ? this.formattedView.innerText 
+                : this.currentMarkdown;
+            
+            await navigator.clipboard.writeText(textToCopy);
             
             // 顯示複製成功提示
             const originalText = this.copyBtn.textContent;
@@ -226,8 +291,10 @@ class OCRApp {
         } catch (error) {
             console.error('複製失敗:', error);
             // 降級方案：選中文字
-            this.resultText.select();
-            this.resultText.setSelectionRange(0, 99999);
+            if (document.querySelector('.tab-btn.active').dataset.view === 'markdown') {
+                this.markdownView.select();
+                this.markdownView.setSelectionRange(0, 99999);
+            }
         }
     }
 
