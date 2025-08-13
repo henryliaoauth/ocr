@@ -207,7 +207,7 @@ main {
 .result-view {
     display: none;
     width: 100%;
-    min-height: 400px;
+    min-height: 70vh;
 }
 
 .result-view.active {
