@@ -7,7 +7,7 @@ class OCRApp {
         // API 配置
         this.config = {
             apiBase: 'https://qa.agent.authme.ai',
-            token: 'app-a3mA4KYAWKYexq6GSbTde9Tb',
+            token: 'app-kqIvQN4oB409qguyMYWjXE8z',
             user: 'ocr-web'
         };
     }
@@ -116,11 +116,12 @@ class OCRApp {
             this.hideAllSections();
             this.loadingSection.style.display = 'block';
             this.resultSection.style.display = 'none';
-            // 轉換圖片為 Base64
-            const base64Data = await this.fileToBase64(this.currentFile);
+            
+            // 上傳圖片檔案
+            const fileId = await this.uploadFile(this.currentFile);
             
             // 調用 API
-            const result = await this.callOCRAPI(base64Data);
+            const result = await this.callOCRAPI(fileId);
             
             // 顯示結果
             this.showResult(result);
@@ -144,10 +145,35 @@ class OCRApp {
         });
     }
 
-    async callOCRAPI(base64Data) {
+    async uploadFile(file) {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('user', this.config.user);
+
+        const response = await fetch(`${this.config.apiBase}/v1/files/upload`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${this.config.token}`
+            },
+            body: formData
+        });
+
+        if (!response.ok) {
+            throw new Error(`文件上傳失敗: ${response.status} ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        return data.id;
+    }
+
+    async callOCRAPI(fileId) {
         const requestData = {
             inputs: {
-                base64: base64Data
+                image: {
+                    transfer_method: "local_file",
+                    upload_file_id: fileId,
+                    type: "image"
+                }
             },
             response_mode: "blocking",
             user: this.config.user
@@ -172,36 +198,14 @@ class OCRApp {
 
     extractResponse(apiResponse) {
         try {
-            // 獲取 result.response
-            const responseContent = apiResponse.result?.response;
+            // 獲取 workflow 執行結果
+            const outputs = apiResponse.result.response
             
-            if (!responseContent) {
-                throw new Error('API 回應格式錯誤');
+            if (!outputs) {
+                throw new Error('API 回應格式錯誤：未找到輸出結果');
             }
 
-            // 檢查是否為 JSON 字符串
-            if (typeof responseContent === 'string') {
-                try {
-                    // 嘗試解析為 JSON
-                    const parsed = JSON.parse(responseContent);
-                    // 如果是對象且包含文字內容，提取文字
-                    if (typeof parsed === 'object' && parsed.text) {
-                        return parsed.text;
-                    }
-                    return responseContent;
-                } catch (jsonError) {
-                    // 如果不是 JSON，直接返回文本
-                    return responseContent;
-                }
-            } else if (typeof responseContent === 'object') {
-                // 如果是對象，嘗試提取文字
-                if (responseContent.text) {
-                    return responseContent.text;
-                }
-                return JSON.stringify(responseContent, null, 2);
-            }
-            
-            return String(responseContent);
+            return String(outputs);
             
         } catch (error) {
             throw new Error(`處理 API 回應失敗: ${error.message}`);
