@@ -248,6 +248,13 @@ class OCRApp {
         const htmlContent = this.parseMarkdownToHTML(text);
         this.formattedView.innerHTML = htmlContent;
         
+        // 觸發 MathJax 重新渲染數學公式
+        if (window.MathJax) {
+            window.MathJax.typesetPromise([this.formattedView]).catch((e) => {
+                console.error('MathJax rendering error:', e);
+            });
+        }
+        
         this.resultSection.style.display = 'block';
     }
     
@@ -267,6 +274,12 @@ class OCRApp {
         
         if (targetView === 'formatted') {
             this.formattedView.classList.add('active');
+            // 切換到格式化視圖時重新渲染 MathJax
+            if (window.MathJax) {
+                window.MathJax.typesetPromise([this.formattedView]).catch((e) => {
+                    console.error('MathJax rendering error:', e);
+                });
+            }
         } else {
             this.markdownView.classList.add('active');
         }
