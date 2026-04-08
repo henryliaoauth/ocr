@@ -22,7 +22,7 @@ export default async function handler(request) {
   }
 
   const API_URL = 'https://platform-api-prod-933489661561.asia-east1.run.app/api/v1/execute/ocr-demo-bKVEbB2J';
-  const API_KEY = process.env.OCR_API_KEY || 'pk_aR6Jw0go_5UBw27kh_g8PkWyWtJ6XfAgfixB12VNW';
+  const API_KEY = 'pk_aR6Jw0go_5UBw27kh_g8PkWyWtJ6XfAgfixB12VNW';
 
   try {
     const body = await request.arrayBuffer();
