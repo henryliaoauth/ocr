@@ -1,54 +1,38 @@
-export const config = {
-  supportsResponseStreaming: true,
-};
+import https from 'node:https';
 
-export default async function handler(request) {
-  if (request.method === 'OPTIONS') {
-    return new Response(null, {
-      status: 200,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type',
-      },
-    });
-  }
+const API_URL = 'https://platform-api-prod-933489661561.asia-east1.run.app/api/v1/execute/ocr-demo-bKVEbB2J';
+const API_KEY = 'pk_aR6Jw0go_5UBw27kh_g8PkWyWtJ6XfAgfixB12VNW';
 
-  if (request.method !== 'POST') {
-    return new Response(JSON.stringify({ error: 'Method not allowed' }), {
-      status: 405,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  }
+export default function handler(req, res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-  const API_URL = 'https://platform-api-prod-933489661561.asia-east1.run.app/api/v1/execute/ocr-demo-bKVEbB2J';
-  const API_KEY = 'pk_aR6Jw0go_5UBw27kh_g8PkWyWtJ6XfAgfixB12VNW';
+  if (req.method === 'OPTIONS') return res.status(200).end();
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  try {
-    const body = await request.arrayBuffer();
+  const url = new URL(API_URL);
 
-    const response = await fetch(API_URL, {
+  const proxyReq = https.request(
+    {
+      hostname: url.hostname,
+      path: url.pathname,
       method: 'POST',
       headers: {
         'X-API-Key': API_KEY,
-        'Content-Type': request.headers.get('content-type'),
+        'Content-Type': req.headers['content-type'],
       },
-      body: body,
-    });
+    },
+    (proxyRes) => {
+      res.status(proxyRes.statusCode);
+      res.setHeader('Content-Type', proxyRes.headers['content-type'] || 'text/plain');
+      proxyRes.pipe(res);
+    }
+  );
 
-    const text = await response.text();
+  proxyReq.on('error', (err) => {
+    res.status(502).json({ error: err.message });
+  });
 
-    return new Response(text, {
-      status: response.status,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Content-Type': response.headers.get('content-type') || 'text/plain',
-      },
-    });
-  } catch (error) {
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 502,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  }
+  req.pipe(proxyReq);
 }
