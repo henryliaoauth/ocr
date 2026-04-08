@@ -14,7 +14,7 @@
    python3 demo/demo_simple_base64_api.py 7864
    ```
    
-   訪問：`http://localhost:7864`
+   訪問：`http://localhost:7864` 
 
 3. **命令行使用**
    ```bash
