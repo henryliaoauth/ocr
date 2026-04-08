@@ -1,0 +1,10 @@
+{
+  "rewrites": [
+    { "source": "/api/ocr", "destination": "/api/ocr" }
+  ],
+  "functions": {
+    "api/ocr.js": {
+      "maxDuration": 300
+    }
+  }
+}
