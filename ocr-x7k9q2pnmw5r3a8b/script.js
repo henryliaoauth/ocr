@@ -243,7 +243,20 @@ class OCRApp {
                 return hljs.highlightAuto(code).value;
             }
         });
-        return marked.parse(markdown);
+
+        // Protect math expressions from markdown's backslash-escape rules so MathJax can pick them up later.
+        const mathBlocks = [];
+        const stash = (m) => {
+            mathBlocks.push(m);
+            return `@@MATH${mathBlocks.length - 1}@@`;
+        };
+        const protectedMd = markdown
+            .replace(/\\\[[\s\S]+?\\\]/g, stash)
+            .replace(/\\\([\s\S]+?\\\)/g, stash);
+
+        let html = marked.parse(protectedMd);
+        html = html.replace(/@@MATH(\d+)@@/g, (_, i) => mathBlocks[Number(i)]);
+        return html;
     }
 
     showResult(text) {
