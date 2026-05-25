@@ -228,6 +228,48 @@ class OCRApp {
         }
     }
 
+    autoWrapMath(text) {
+        const SUP = { '²':'^2','³':'^3','⁰':'^0','¹':'^1','⁴':'^4','⁵':'^5','⁶':'^6','⁷':'^7','⁸':'^8','⁹':'^9','ⁿ':'^n','ⁱ':'^i','ᵃ':'^a','ᵇ':'^b','ᵏ':'^k' };
+        const SUB = { 'ₙ':'_n','ᵢ':'_i','₀':'_0','₁':'_1','₂':'_2','₃':'_3','₄':'_4','₅':'_5','₆':'_6','₇':'_7','₈':'_8','₉':'_9','ⱼ':'_j','ₖ':'_k' };
+        const SYM = { 'π':'\\pi ','Σ':'\\sum ','∑':'\\sum ','∫':'\\int ','√':'\\sqrt ','≈':'\\approx ','≤':'\\leq ','≥':'\\geq ','≠':'\\neq ','±':'\\pm ','×':'\\times ','÷':'\\div ','∞':'\\infty ','α':'\\alpha ','β':'\\beta ','γ':'\\gamma ','δ':'\\delta ','θ':'\\theta ','λ':'\\lambda ','μ':'\\mu ' };
+        const MATH_CHARS = /[²³⁰¹⁴⁵⁶⁷⁸⁹ⁿⁱᵃᵇᵏₙᵢ₀₁₂₃₄₅₆₇₈₉ⱼₖπΣ∑∫√≈≤≥≠±×÷∞αβγδθλμ]/;
+        const VAR_EQ = /^[a-zA-Z]\s*=/;
+
+        const toLatex = (s) => {
+            let out = '';
+            for (const ch of s) {
+                if (ch in SUP) out += SUP[ch];
+                else if (ch in SUB) out += SUB[ch];
+                else if (ch in SYM) out += SYM[ch];
+                else out += ch;
+            }
+            return out.replace(/\s+\\/g, ' \\').replace(/\s{2,}/g, ' ').trim();
+        };
+        const looksLikeMath = (s) => MATH_CHARS.test(s) || VAR_EQ.test(s.trim());
+
+        return text.split('\n').map(line => {
+            if (/\\\(|\\\[/.test(line)) return line;          // already wrapped
+            if (/^\s*\|/.test(line)) return line;              // markdown table row
+            if (/^\s*#/.test(line)) return line;               // heading
+            if (line.includes('$')) return line;               // currency line — leave alone
+            if (!/  +/.test(line)) {
+                const trimmed = line.trim();
+                if (trimmed && looksLikeMath(trimmed)) {
+                    return '\\(' + toLatex(trimmed) + '\\)';
+                }
+                return line;
+            }
+            return line.split(/(  +)/).map(seg => {
+                if (/^\s+$/.test(seg)) return seg;
+                const trimmed = seg.trim();
+                if (trimmed && looksLikeMath(trimmed)) {
+                    return '\\(' + toLatex(trimmed) + '\\)';
+                }
+                return seg;
+            }).join('');
+        }).join('\n');
+    }
+
     parseMarkdownToHTML(markdown) {
         marked.setOptions({
             breaks: true,
@@ -267,7 +309,7 @@ class OCRApp {
         this.currentMarkdown = text;
         this.markdownView.value = text;
 
-        const htmlContent = this.parseMarkdownToHTML(text);
+        const htmlContent = this.parseMarkdownToHTML(this.autoWrapMath(text));
         this.formattedView.innerHTML = htmlContent;
 
         if (window.MathJax) {
