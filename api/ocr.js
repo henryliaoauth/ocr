@@ -2,14 +2,19 @@ import https from 'node:https';
 
 const API_URL = 'https://platform-api-prod-933489661561.asia-east1.run.app/api/v1/execute/ocr-demo-bKVEbB2J';
 const API_KEY = 'pk_aR6Jw0go_5UBw27kh_g8PkWyWtJ6XfAgfixB12VNW';
+const ACCESS_TOKEN = 'ocr-x7k9q2pnmw5r3a8b';
 
 export default function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Access-Token');
 
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+
+  if (req.headers['x-access-token'] !== ACCESS_TOKEN) {
+    return res.status(404).json({ error: 'Not found' });
+  }
 
   const url = new URL(API_URL);
 

@@ -28,13 +28,6 @@
   [headers.values]
     Cache-Control = "public, max-age=3600"
 
-# 處理 SPA 路由（如果需要）
-[[redirects]]
-  from = "/*"
-  to = "/index.html"
-  status = 200
-  conditions = {Role = ["admin"], Country = ["US"], Query = {path = "app"}}
-
 # CORS 設定（因為需要調用外部 API）
 [[headers]]
   for = "/api/*"

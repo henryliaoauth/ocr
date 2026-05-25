@@ -11,8 +11,13 @@ import os
 
 API_URL = "https://platform-api-prod-933489661561.asia-east1.run.app/api/v1/execute/ocr-demo-bKVEbB2J"
 API_KEY = "pk_aR6Jw0go_5UBw27kh_g8PkWyWtJ6XfAgfixB12VNW"
+ACCESS_TOKEN = "ocr-x7k9q2pnmw5r3a8b"
 
 class ProxyHandler(http.server.SimpleHTTPRequestHandler):
+    def list_directory(self, path):
+        self.send_error(404)
+        return None
+
     def do_OPTIONS(self):
         self.send_response(200)
         self._cors_headers()
@@ -20,6 +25,9 @@ class ProxyHandler(http.server.SimpleHTTPRequestHandler):
 
     def do_POST(self):
         if self.path == "/api/ocr":
+            if self.headers.get("X-Access-Token") != ACCESS_TOKEN:
+                self.send_error(404)
+                return
             self._proxy_ocr()
         else:
             self.send_error(404)
@@ -27,7 +35,7 @@ class ProxyHandler(http.server.SimpleHTTPRequestHandler):
     def _cors_headers(self):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-API-Key")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-API-Key, X-Access-Token")
 
     def _proxy_ocr(self):
         content_length = int(self.headers.get("Content-Length", 0))

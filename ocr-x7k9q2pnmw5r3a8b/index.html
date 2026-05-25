@@ -48,7 +48,7 @@
                 </div>
                 <div class="panel-body">
                     <div class="upload-section">
-                        <div class="upload-area" id="uploadArea">
+                        <label class="upload-area" id="uploadArea" for="fileInput">
                             <div class="upload-content">
                                 <div class="upload-icon">
                                     <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -61,8 +61,8 @@
                                 <p class="upload-hint">or click to browse</p>
                                 <p class="upload-formats">JPG, PNG, GIF, BMP</p>
                             </div>
-                            <input type="file" id="fileInput" accept="image/*" hidden>
-                        </div>
+                        </label>
+                        <input type="file" id="fileInput" accept="image/*" hidden>
                     </div>
 
                     <div class="preview-section" id="previewSection" style="display: none;">

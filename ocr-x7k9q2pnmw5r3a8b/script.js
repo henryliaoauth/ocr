@@ -4,9 +4,11 @@ class OCRApp {
         this.bindEvents();
         this.currentFile = null;
 
-        // API config — via local proxy to avoid CORS
+        // Access token is the first path segment (the slug used to reach this page).
+        const slug = window.location.pathname.split('/').filter(Boolean)[0] || '';
         this.config = {
-            apiUrl: '/api/ocr'
+            apiUrl: '/api/ocr',
+            accessToken: slug
         };
     }
 
@@ -34,7 +36,6 @@ class OCRApp {
     }
 
     bindEvents() {
-        this.uploadArea.addEventListener('click', () => this.fileInput.click());
         this.uploadArea.addEventListener('dragover', this.handleDragOver.bind(this));
         this.uploadArea.addEventListener('dragleave', this.handleDragLeave.bind(this));
         this.uploadArea.addEventListener('drop', this.handleDrop.bind(this));
@@ -139,6 +140,9 @@ class OCRApp {
 
         const response = await fetch(this.config.apiUrl, {
             method: 'POST',
+            headers: {
+                'X-Access-Token': this.config.accessToken
+            },
             body: formData
         });
 
