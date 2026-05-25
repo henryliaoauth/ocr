@@ -87,17 +87,72 @@ class OCRApp {
         if (file) this.processFile(file);
     }
 
-    processFile(file) {
+    async processFile(file) {
         if (!file.type.startsWith('image/')) {
             this.showError('Please select an image file');
             return;
         }
-        if (file.size > 10 * 1024 * 1024) {
-            this.showError('File size cannot exceed 10MB');
+        if (file.size > 50 * 1024 * 1024) {
+            this.showError('File size cannot exceed 50MB');
             return;
         }
-        this.currentFile = file;
-        this.showPreview(file);
+
+        // Vercel serverless functions cap request body at ~4.5MB; leave buffer.
+        const targetBytes = 4.3 * 1024 * 1024;
+        let processed = file;
+        if (file.size > targetBytes) {
+            this.setStatus('processing', 'Compressing');
+            try {
+                processed = await this.compressImage(file, targetBytes);
+            } catch (e) {
+                this.showError('Image is too large to compress under 4.5MB');
+                this.setStatus('ready', 'Ready');
+                return;
+            }
+            this.setStatus('ready', 'Ready');
+        }
+
+        this.currentFile = processed;
+        this.showPreview(processed);
+    }
+
+    compressImage(file, targetBytes) {
+        return new Promise((resolve, reject) => {
+            const url = URL.createObjectURL(file);
+            const img = new Image();
+            img.onload = async () => {
+                URL.revokeObjectURL(url);
+                const maxDim = 2400;
+                let { width, height } = img;
+                if (width > maxDim || height > maxDim) {
+                    const ratio = Math.min(maxDim / width, maxDim / height);
+                    width = Math.round(width * ratio);
+                    height = Math.round(height * ratio);
+                }
+                const canvas = document.createElement('canvas');
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(0, 0, width, height);
+                ctx.drawImage(img, 0, 0, width, height);
+
+                for (const quality of [0.85, 0.7, 0.55, 0.4]) {
+                    const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', quality));
+                    if (blob && blob.size <= targetBytes) {
+                        const baseName = file.name.replace(/\.[^.]+$/, '');
+                        resolve(new File([blob], baseName + '.jpg', { type: 'image/jpeg' }));
+                        return;
+                    }
+                }
+                reject(new Error('Compression failed'));
+            };
+            img.onerror = () => {
+                URL.revokeObjectURL(url);
+                reject(new Error('Could not load image'));
+            };
+            img.src = url;
+        });
     }
 
     showPreview(file) {
