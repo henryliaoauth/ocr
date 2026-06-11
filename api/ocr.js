@@ -11,14 +11,21 @@ const ACCESS_TOKEN = 'ocr-x7k9q2pnmw5r3a8b';
 
 const SUBMIT_ATTEMPTS = 3;
 const REQUEST_TIMEOUT_MS = 30_000;   // per HTTP call to the platform
-const POLL_INTERVAL_MS = 2_000;
-const MAX_POLL_MS = 280_000;         // stay under the 300s function maxDuration
 
 export const config = {
   api: { bodyParser: false },
 };
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Only allow polling the platform's status routes (prevents using the proxy +
+// API key as an open SSRF proxy to arbitrary upstream paths).
+function isValidStatusPath(p) {
+  return typeof p === 'string'
+    && p.startsWith('/api/v1/execute/status/')
+    && !p.includes('..')
+    && !p.includes('://');
+}
 
 function readBody(req) {
   return new Promise((resolve, reject) => {
@@ -61,12 +68,36 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Access-Token');
 
   if (req.method === 'OPTIONS') return res.status(200).end();
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   if (req.headers['x-access-token'] !== ACCESS_TOKEN) {
     return res.status(404).json({ error: 'Not found' });
   }
 
+  // ----- Poll: GET /api/ocr?status=<statusPath> -----
+  if (req.method === 'GET') {
+    const statusPath = req.query?.status;
+    if (!isValidStatusPath(statusPath)) {
+      return res.status(400).json({ error: 'invalid_status_path', message: 'bad or missing status path' });
+    }
+    let poll;
+    try {
+      poll = await httpsRequest('GET', API_ORIGIN + statusPath, { 'X-API-Key': API_KEY });
+    } catch (e) {
+      return res.status(502).json({ error: 'poll_failed', message: e.message });
+    }
+    let data;
+    try { data = JSON.parse(poll.body)?.data; } catch {}
+    if (!data) {
+      return res.status(502).json({ error: 'poll_unparsable', message: poll.body.slice(0, 300) });
+    }
+    res.status(200);
+    res.setHeader('Content-Type', 'application/json');
+    return res.end(JSON.stringify(data));
+  }
+
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+
+  // ----- Submit: POST /api/ocr { image, category } -> { statusPath } -----
   let rawBody;
   try {
     rawBody = await readBody(req);
@@ -74,7 +105,6 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'read_body_failed', message: e.message });
   }
 
-  // Frontend sends JSON { image: <data URL>, category }; wrap it for the workflow.
   let payload;
   try {
     const parsed = JSON.parse(rawBody.toString('utf8'));
@@ -86,7 +116,6 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'invalid_body', message: e.message });
   }
 
-  // 1) Submit (async) — retry a few times for cold starts / transient errors.
   let submit, lastErr;
   for (let attempt = 1; attempt <= SUBMIT_ATTEMPTS; attempt++) {
     try {
@@ -117,39 +146,5 @@ export default async function handler(req, res) {
     return res.status(502).json({ error: 'no_status_url', message: submit.body.slice(0, 300) });
   }
 
-  // 2) Poll until the run finishes.
-  const deadline = Date.now() + MAX_POLL_MS;
-  while (Date.now() < deadline) {
-    let poll;
-    try {
-      poll = await httpsRequest('GET', API_ORIGIN + statusUrl, { 'X-API-Key': API_KEY });
-    } catch {
-      await sleep(POLL_INTERVAL_MS);
-      continue;
-    }
-
-    let data;
-    try { data = JSON.parse(poll.body)?.data; } catch {}
-    const status = data?.status;
-
-    if (status === 'completed') {
-      res.status(200);
-      res.setHeader('Content-Type', 'application/json');
-      // data.output is the response node ({ __responseNode, body, ... }); the
-      // frontend unwraps it the same way it unwraps sync/stream replies.
-      return res.end(JSON.stringify(data.output ?? data));
-    }
-    if (status === 'failed' || status === 'cancelled') {
-      return res.status(502).json({
-        error: 'workflow_' + status,
-        message: typeof data.error === 'string' ? data.error : JSON.stringify(data.error || status),
-      });
-    }
-    await sleep(POLL_INTERVAL_MS);
-  }
-
-  return res.status(504).json({
-    error: 'poll_timeout',
-    message: `分析逾時：背景執行超過 ${Math.round(MAX_POLL_MS / 1000)} 秒仍未完成`,
-  });
+  return res.status(200).json({ statusPath: statusUrl });
 }

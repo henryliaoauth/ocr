@@ -225,18 +225,27 @@ class OCRApp {
         });
     }
 
-    async callOCRAPI(file, signal) {
-        // Send the image as a base64 data URL in a JSON body; the proxy just
-        // wraps it as { input: { image, category } } for the workflow.
-        const image = await this.fileToDataURL(file);
-
-        // The proxy buffers the whole upstream reply, so there's no real-time
-        // signal — animate toward 90% while we wait, finish on arrival.
-        const stopProgress = this.startSimulatedProgress();
-
-        let response;
+    async errorMessage(response) {
         try {
-            response = await fetch(this.config.apiUrl, {
+            const j = JSON.parse(await response.text());
+            return this.friendlyError(j.message || j.error || `API error: ${response.status}`);
+        } catch {
+            return `API error: ${response.status}`;
+        }
+    }
+
+    async callOCRAPI(file, signal) {
+        // Async flow: the proxy submits the workflow in the background and we
+        // poll a short request every couple seconds. Polling on the client (not
+        // inside one long-held proxy call) keeps each request well under
+        // Vercel's per-invocation time limit.
+        const image = await this.fileToDataURL(file);
+        const stopProgress = this.startSimulatedProgress();
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+        try {
+            // 1) Submit — returns a status path to poll.
+            const subRes = await fetch(this.config.apiUrl, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -245,27 +254,38 @@ class OCRApp {
                 body: JSON.stringify({ image, category: this.selectedCategory }),
                 signal
             });
-        } catch (e) {
+            if (!subRes.ok) throw new Error(await this.errorMessage(subRes));
+            const { statusPath } = await subRes.json();
+            if (!statusPath) throw new Error('提交失敗：未取得查詢路徑');
+
+            // 2) Poll until the background run finishes (cap ~280s).
+            const deadline = Date.now() + 280000;
+            while (Date.now() < deadline) {
+                await sleep(2000);
+                const pollRes = await fetch(
+                    `${this.config.apiUrl}?status=${encodeURIComponent(statusPath)}`,
+                    { headers: { 'X-Access-Token': this.config.accessToken }, signal }
+                );
+                if (!pollRes.ok) throw new Error(await this.errorMessage(pollRes));
+                const data = await pollRes.json();
+
+                if (data.status === 'completed') {
+                    this.setProgress(100);
+                    await sleep(200);
+                    // data.output is the response node ({ __responseNode, body, ... }).
+                    return this.extractResponse(data.output ?? data);
+                }
+                if (data.status === 'failed' || data.status === 'cancelled') {
+                    const detail = typeof data.error === 'string'
+                        ? data.error
+                        : (data.error ? JSON.stringify(data.error) : '分析失敗');
+                    throw new Error(this.friendlyError(detail));
+                }
+            }
+            throw new Error('分析逾時：背景執行超過 280 秒仍未完成');
+        } finally {
             stopProgress();
-            throw e;
         }
-
-        if (!response.ok) {
-            stopProgress();
-            const errText = await response.text();
-            let msg = `API error: ${response.status}`;
-            try { msg = JSON.parse(errText).message || msg; } catch {}
-            throw new Error(msg);
-        }
-
-        // The proxy buffers the whole upstream reply (SSE or JSON), so just read
-        // it fully and figure out the shape afterwards.
-        const text = await response.text();
-        stopProgress();
-        this.setProgress(100);
-        await new Promise(r => setTimeout(r, 200));
-
-        return this.extractFromText(text);
     }
 
     // Turn a raw upstream payload (plain JSON or an SSE event stream) into the
@@ -354,8 +374,6 @@ class OCRApp {
 
     extractResponse(apiResponse) {
         try {
-            console.log('[OCR] raw response:', JSON.stringify(apiResponse).slice(0, 500));
-
             // Unwrap the response node ({ __responseNode: true, body: ... }),
             // wherever it sits in the node graph.
             let data = apiResponse;
@@ -368,11 +386,8 @@ class OCRApp {
                 }
             }
 
-            console.log('[OCR] unwrapped data:', JSON.stringify(data).slice(0, 500));
-
             // Envelope format from workflow
             if (data && data.report && data.report.markdown) {
-                console.log('[OCR] source_markdown:', String(data.source_markdown).slice(0, 100));
                 return {
                     reportMarkdown: data.report.markdown,
                     sourceMarkdown: data.source_markdown || ''

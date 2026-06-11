@@ -10,27 +10,16 @@ import urllib.error
 import json
 import sys
 import os
-import time
 
 # Async execution: submit with `X-Execution-Mode: async`, then poll the returned
 # statusUrl. This runs the workflow in the background and is the only mode that
 # avoids the platform's 30s synchronous-execution timeout (sync and /stream both
-# cap at 30s).
+# cap at 30s). The client drives the poll loop; the proxy just submits once and
+# forwards one status check per request.
 API_ORIGIN = "https://platform-api-933489661561.asia-east1.run.app"
 EXEC_PATH = "/api/v1/execute/manual-switch-vJtCm3RN"
 API_KEY = "pk_dYA1rGzN_tXFx15j7OG6Sg94wTSq0JMtp9VwRq_q6"
 ACCESS_TOKEN = "ocr-x7k9q2pnmw5r3a8b"
-
-POLL_INTERVAL_S = 2
-MAX_POLL_S = 280
-
-
-class _ProxyError(Exception):
-    def __init__(self, code, error, message):
-        super().__init__(message)
-        self.code = code
-        self.error = error
-        self.message = message
 
 
 class ProxyHandler(http.server.SimpleHTTPRequestHandler):
@@ -56,37 +45,39 @@ class ProxyHandler(http.server.SimpleHTTPRequestHandler):
             if self.headers.get("X-Access-Token") != ACCESS_TOKEN:
                 self.send_error(404)
                 return
-            self._proxy_ocr()
+            self._submit_ocr()
         else:
             self.send_error(404)
 
+    def do_GET(self):
+        # Poll endpoint: /api/ocr?status=<statusPath>. Everything else = static.
+        if self.path.split("?", 1)[0] == "/api/ocr":
+            if self.headers.get("X-Access-Token") != ACCESS_TOKEN:
+                self.send_error(404)
+                return
+            self._poll_ocr()
+            return
+        super().do_GET()
+
     def _cors_headers(self):
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, X-API-Key, X-Access-Token")
 
-    def _proxy_ocr(self):
+    # Submit the workflow async, return { statusPath } for the client to poll.
+    def _submit_ocr(self):
         content_length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(content_length)
 
-        # Frontend sends JSON { image: <data URL>, category }.
         try:
             data = json.loads(body)
         except Exception:
-            self.send_response(400)
-            self._cors_headers()
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(b'{"error":"invalid JSON body"}')
+            self._json(400, {"error": "invalid_body", "message": "invalid JSON body"})
             return
 
         image = data.get("image")
         if not image:
-            self.send_response(400)
-            self._cors_headers()
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(b'{"error":"missing image"}')
+            self._json(400, {"error": "missing_image", "message": "missing image"})
             return
 
         payload = json.dumps({
@@ -96,15 +87,6 @@ class ProxyHandler(http.server.SimpleHTTPRequestHandler):
             }
         }).encode()
 
-        try:
-            output = self._run_async(payload)
-        except _ProxyError as e:
-            self._json(e.code, {"error": e.error, "message": e.message})
-            return
-        self._json(200, output)
-
-    def _run_async(self, payload):
-        # 1) Submit (async).
         req = urllib.request.Request(
             API_ORIGIN + EXEC_PATH,
             data=payload,
@@ -119,34 +101,35 @@ class ProxyHandler(http.server.SimpleHTTPRequestHandler):
             with urllib.request.urlopen(req, timeout=30) as resp:
                 submit = json.loads(resp.read())
         except urllib.error.HTTPError as e:
-            raise _ProxyError(502, "submit_failed", f"HTTP {e.code}: {e.read()[:200]!r}")
+            self._json(502, {"error": "submit_failed", "message": f"HTTP {e.code}: {e.read()[:200]!r}"})
+            return
         except Exception as e:
-            raise _ProxyError(502, "submit_failed", str(e))
+            self._json(502, {"error": "submit_failed", "message": str(e)})
+            return
 
         status_url = (submit.get("data") or {}).get("statusUrl")
         if not status_url:
-            raise _ProxyError(502, "no_status_url", json.dumps(submit)[:300])
+            self._json(502, {"error": "no_status_url", "message": json.dumps(submit)[:300]})
+            return
+        self._json(200, {"statusPath": status_url})
 
-        # 2) Poll until finished.
-        deadline = time.time() + MAX_POLL_S
-        while time.time() < deadline:
-            try:
-                preq = urllib.request.Request(API_ORIGIN + status_url, headers={"X-API-Key": API_KEY})
-                with urllib.request.urlopen(preq, timeout=30) as r:
-                    data = json.loads(r.read()).get("data") or {}
-            except Exception:
-                time.sleep(POLL_INTERVAL_S)
-                continue
-
-            status = data.get("status")
-            if status == "completed":
-                return data.get("output", data)
-            if status in ("failed", "cancelled"):
-                err = data.get("error")
-                raise _ProxyError(502, "workflow_" + status, err if isinstance(err, str) else json.dumps(err))
-            time.sleep(POLL_INTERVAL_S)
-
-        raise _ProxyError(504, "poll_timeout", f"背景執行超過 {MAX_POLL_S} 秒仍未完成")
+    # Forward one poll for the run status.
+    def _poll_ocr(self):
+        from urllib.parse import urlparse, parse_qs, unquote
+        qs = parse_qs(urlparse(self.path).query)
+        status_path = unquote((qs.get("status") or [""])[0])
+        if not (status_path.startswith("/api/v1/execute/status/")
+                and ".." not in status_path and "://" not in status_path):
+            self._json(400, {"error": "invalid_status_path", "message": "bad or missing status path"})
+            return
+        try:
+            preq = urllib.request.Request(API_ORIGIN + status_path, headers={"X-API-Key": API_KEY})
+            with urllib.request.urlopen(preq, timeout=30) as r:
+                data = json.loads(r.read()).get("data") or {}
+        except Exception as e:
+            self._json(502, {"error": "poll_failed", "message": str(e)})
+            return
+        self._json(200, data)
 
     def _json(self, code, obj):
         self.send_response(code)
