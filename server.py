@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-Local dev server: serves static files + proxies /api/ocr to the OCR workflow
-(synchronous JSON; same endpoint as the Vercel function).
+Local dev server: serves static files + proxies /api/ocr to the OCR workflow.
+Mirrors the Vercel function (api/ocr.js): POSTs to the platform's /stream
+endpoint and pipes the Server-Sent Events straight back to the browser.
 """
 
 import http.server
@@ -11,13 +12,12 @@ import json
 import sys
 import os
 
-# Async execution: submit with `X-Execution-Mode: async`, then poll the returned
-# statusUrl. This runs the workflow in the background and is the only mode that
-# avoids the platform's 30s synchronous-execution timeout (sync and /stream both
-# cap at 30s). The client drives the poll loop; the proxy just submits once and
-# forwards one status check per request.
+# Streaming execution: POST to the platform's /stream endpoint and pipe the SSE
+# response straight back to the client so it can render progress / results live.
+# NOTE: the platform caps /stream (and sync) at 30s — longer runs get cut off
+# upstream. The async submit+poll mode avoids that cap but shows no partial output.
 API_ORIGIN = "https://platform-api-933489661561.asia-east1.run.app"
-EXEC_PATH = "/api/v1/execute/manual-switch-vJtCm3RN"
+STREAM_PATH = "/api/v1/execute/manual-switch-vJtCm3RN/stream"
 API_KEY = "pk_dYA1rGzN_tXFx15j7OG6Sg94wTSq0JMtp9VwRq_q6"
 ACCESS_TOKEN = "ocr-x7k9q2pnmw5r3a8b"
 
@@ -45,27 +45,17 @@ class ProxyHandler(http.server.SimpleHTTPRequestHandler):
             if self.headers.get("X-Access-Token") != ACCESS_TOKEN:
                 self.send_error(404)
                 return
-            self._submit_ocr()
+            self._stream_ocr()
         else:
             self.send_error(404)
 
-    def do_GET(self):
-        # Poll endpoint: /api/ocr?status=<statusPath>. Everything else = static.
-        if self.path.split("?", 1)[0] == "/api/ocr":
-            if self.headers.get("X-Access-Token") != ACCESS_TOKEN:
-                self.send_error(404)
-                return
-            self._poll_ocr()
-            return
-        super().do_GET()
-
     def _cors_headers(self):
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, X-API-Key, X-Access-Token")
 
-    # Submit the workflow async, return { statusPath } for the client to poll.
-    def _submit_ocr(self):
+    # Open the upstream SSE stream and pipe it through to the client unbuffered.
+    def _stream_ocr(self):
         content_length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(content_length)
 
@@ -88,48 +78,41 @@ class ProxyHandler(http.server.SimpleHTTPRequestHandler):
         }).encode()
 
         req = urllib.request.Request(
-            API_ORIGIN + EXEC_PATH,
+            API_ORIGIN + STREAM_PATH,
             data=payload,
             headers={
                 "X-API-Key": API_KEY,
-                "X-Execution-Mode": "async",
                 "Content-Type": "application/json",
+                "Accept": "text/event-stream",
             },
             method="POST",
         )
         try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                submit = json.loads(resp.read())
+            resp = urllib.request.urlopen(req, timeout=295)
         except urllib.error.HTTPError as e:
-            self._json(502, {"error": "submit_failed", "message": f"HTTP {e.code}: {e.read()[:200]!r}"})
+            self._json(502, {"error": "stream_failed", "message": f"HTTP {e.code}: {e.read()[:200]!r}"})
             return
         except Exception as e:
-            self._json(502, {"error": "submit_failed", "message": str(e)})
+            self._json(502, {"error": "stream_failed", "message": str(e)})
             return
 
-        status_url = (submit.get("data") or {}).get("statusUrl")
-        if not status_url:
-            self._json(502, {"error": "no_status_url", "message": json.dumps(submit)[:300]})
-            return
-        self._json(200, {"statusPath": status_url})
-
-    # Forward one poll for the run status.
-    def _poll_ocr(self):
-        from urllib.parse import urlparse, parse_qs, unquote
-        qs = parse_qs(urlparse(self.path).query)
-        status_path = unquote((qs.get("status") or [""])[0])
-        if not (status_path.startswith("/api/v1/execute/status/")
-                and ".." not in status_path and "://" not in status_path):
-            self._json(400, {"error": "invalid_status_path", "message": "bad or missing status path"})
-            return
+        self.send_response(200)
+        self._cors_headers()
+        self.send_header("Content-Type", resp.headers.get("Content-Type") or "text/event-stream; charset=utf-8")
+        self.send_header("X-Accel-Buffering", "no")
+        self.end_headers()
         try:
-            preq = urllib.request.Request(API_ORIGIN + status_path, headers={"X-API-Key": API_KEY})
-            with urllib.request.urlopen(preq, timeout=30) as r:
-                data = json.loads(r.read()).get("data") or {}
-        except Exception as e:
-            self._json(502, {"error": "poll_failed", "message": str(e)})
-            return
-        self._json(200, data)
+            while True:
+                chunk = resp.read(512)
+                if not chunk:
+                    break
+                self.wfile.write(chunk)
+                self.wfile.flush()
+        except Exception:
+            # Client disconnected or upstream dropped — just stop.
+            pass
+        finally:
+            resp.close()
 
     def _json(self, code, obj):
         self.send_response(code)
@@ -145,6 +128,6 @@ class ProxyHandler(http.server.SimpleHTTPRequestHandler):
 if __name__ == "__main__":
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8080
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
-    server = http.server.HTTPServer(("0.0.0.0", port), ProxyHandler)
+    server = http.server.ThreadingHTTPServer(("0.0.0.0", port), ProxyHandler)
     print(f"Server running at http://localhost:{port}")
     server.serve_forever()

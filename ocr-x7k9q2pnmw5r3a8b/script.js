@@ -247,17 +247,16 @@ class OCRApp {
     }
 
     async callOCRAPI(file, signal) {
-        // Async flow: the proxy submits the workflow in the background and we
-        // poll a short request every couple seconds. Polling on the client (not
-        // inside one long-held proxy call) keeps each request well under
-        // Vercel's per-invocation time limit.
+        // Streaming flow: the proxy pipes the platform's /stream SSE straight
+        // back to us. We read it chunk-by-chunk for live feedback, accumulate
+        // the whole stream, then extract the final result from it once the
+        // stream ends. (Platform caps /stream at 30s — long runs get cut off.)
         const image = await this.fileToDataURL(file);
         const stopProgress = this.startSimulatedProgress();
         const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
         try {
-            // 1) Submit — returns a status path to poll.
-            const subRes = await fetch(this.config.apiUrl, {
+            const res = await fetch(this.config.apiUrl, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -266,37 +265,92 @@ class OCRApp {
                 body: JSON.stringify({ image, category: this.selectedCategory }),
                 signal
             });
-            if (!subRes.ok) throw new Error(await this.errorMessage(subRes));
-            const { statusPath } = await subRes.json();
-            if (!statusPath) throw new Error('提交失敗：未取得查詢路徑');
+            if (!res.ok) throw new Error(await this.errorMessage(res));
 
-            // 2) Poll until the background run finishes (cap ~280s).
-            const deadline = Date.now() + 280000;
-            while (Date.now() < deadline) {
-                await sleep(2000);
-                const pollRes = await fetch(
-                    `${this.config.apiUrl}?status=${encodeURIComponent(statusPath)}`,
-                    { headers: { 'X-Access-Token': this.config.accessToken }, signal }
-                );
-                if (!pollRes.ok) throw new Error(await this.errorMessage(pollRes));
-                const data = await pollRes.json();
-
-                if (data.status === 'completed') {
-                    this.setProgress(100);
-                    await sleep(200);
-                    // data.output is the response node ({ __responseNode, body, ... }).
-                    return this.extractResponse(data.output ?? data);
-                }
-                if (data.status === 'failed' || data.status === 'cancelled') {
-                    const detail = typeof data.error === 'string'
-                        ? data.error
-                        : (data.error ? JSON.stringify(data.error) : '分析失敗');
-                    throw new Error(this.friendlyError(detail));
-                }
+            // No streaming support in this browser/runtime — read it all at once.
+            if (!res.body || !res.body.getReader) {
+                return this.extractFromText(await res.text());
             }
-            throw new Error('分析逾時：背景執行超過 280 秒仍未完成');
+
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';   // holds an incomplete trailing line between chunks
+            let full = '';     // the entire stream, for final extraction
+
+            // Reset per-run stream state (filled in by handleStreamLine).
+            this._streamResult = null;
+            this._streamError = null;
+            this._inErrorEvent = false;
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                const chunk = decoder.decode(value, { stream: true });
+                full += chunk;
+                buffer += chunk;
+                // Parse each complete line for live feedback / rendering.
+                let nl;
+                while ((nl = buffer.indexOf('\n')) >= 0) {
+                    this.handleStreamLine(buffer.slice(0, nl));
+                    buffer = buffer.slice(nl + 1);
+                }
+                // The result arrives in one event (execution:completed) — render
+                // the instant we have it, don't wait for the socket to close.
+                if (this._streamResult) break;
+            }
+            if (buffer.trim()) this.handleStreamLine(buffer);
+
+            this.setProgress(100);
+            await sleep(200);
+            if (this._streamError) throw new Error(this.friendlyError(this._streamError));
+            if (this._streamResult) return this._streamResult;
+            return this.extractFromText(full);
         } finally {
             stopProgress();
+        }
+    }
+
+    // Handle one raw line of the SSE stream: track error frames, surface live
+    // progress in the loading text, and render the result the moment the event
+    // carrying it (execution:completed) arrives.
+    handleStreamLine(line) {
+        const l = line.trim();
+        if (!l) return;
+        if (l.startsWith('event:')) {
+            this._inErrorEvent = l.slice(6).trim() === 'error';
+            return;
+        }
+        if (!l.startsWith('data:')) return;
+        const raw = l.slice(5).trim();
+        if (!raw || raw === '[DONE]') return;
+
+        let evt;
+        try {
+            evt = JSON.parse(raw);
+        } catch {
+            // Non-JSON data line under an `event: error` frame = the error text.
+            if (this._inErrorEvent) this._streamError = raw;
+            return;
+        }
+        console.log('[sse]', evt.type || '?', evt);
+
+        if (evt.type === 'execution:failed' || evt.error) {
+            this._streamError = evt.message || evt.error || this._streamError;
+            return;
+        }
+
+        // If this event carries the response node, render it live.
+        const node = this.findResponseNode(evt);
+        if (node) {
+            this._streamResult = this.extractResponse(node);
+            this.showResult(this._streamResult);
+            return;
+        }
+
+        // Otherwise just reflect the current stage in the loading text.
+        const label = evt.type || evt.event || evt.status;
+        if (label && this.loadingText.firstChild) {
+            this.loadingText.firstChild.nodeValue = `Analyzing · ${label}`;
         }
     }
 

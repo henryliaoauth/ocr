@@ -47,6 +47,12 @@
                     <span class="panel-label">Source</span>
                 </div>
                 <div class="panel-body">
+                    <select class="category-select" id="categorySelect">
+                        <option value="income">收入（存摺／薪轉／薪資單）</option>
+                        <option value="debt">負債（信用卡／貸款帳單）</option>
+                        <option value="id">證件</option>
+                    </select>
+
                     <div class="upload-section">
                         <label class="upload-area" id="uploadArea" for="fileInput">
                             <div class="upload-content">
@@ -64,12 +70,6 @@
                         </label>
                         <input type="file" id="fileInput" accept="image/*" hidden>
                     </div>
-
-                    <select class="category-select" id="categorySelect">
-                        <option value="income">收入（存摺／薪轉／薪資單）</option>
-                        <option value="debt">負債（信用卡／貸款帳單）</option>
-                        <option value="id">證件</option>
-                    </select>
 
                     <div class="preview-section" id="previewSection" style="display: none;">
                         <div class="image-preview">
@@ -161,6 +161,6 @@
         </main>
     </div>
 
-    <script src="/ocr-x7k9q2pnmw5r3a8b/script.js?v=7"></script>
+    <script src="/ocr-x7k9q2pnmw5r3a8b/script.js?v=9"></script>
 </body>
 </html>
