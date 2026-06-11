@@ -1,16 +1,24 @@
 import https from 'node:https';
 
-// /stream avoids the platform's 30s sync timeout (SYSTEM_TIMEOUT) for long OCR jobs.
-// (/async is not deployed on this platform — returns 404.)
-const API_URL = 'https://platform-api-933489661561.asia-east1.run.app/api/v1/execute/manual-switch-vJtCm3RN/stream';
-const API_KEY = 'pk_tGg7VSAg_XhLgZIXTzH3VHAez1fL2wF2R5bt6sgox';
+// Async execution: submit with `X-Execution-Mode: async`, then poll the returned
+// statusUrl until completed. This runs the workflow in the background and is the
+// ONLY mode that avoids the platform's 30s synchronous-execution timeout
+// (both sync and /stream are capped at 30s).
+const API_ORIGIN = 'https://platform-api-933489661561.asia-east1.run.app';
+const EXEC_PATH = '/api/v1/execute/manual-switch-vJtCm3RN';
+const API_KEY = 'pk_dYA1rGzN_tXFx15j7OG6Sg94wTSq0JMtp9VwRq_q6';
 const ACCESS_TOKEN = 'ocr-x7k9q2pnmw5r3a8b';
-const MAX_ATTEMPTS = 3;
-const UPSTREAM_TIMEOUT_MS = 270_000;
+
+const SUBMIT_ATTEMPTS = 3;
+const REQUEST_TIMEOUT_MS = 30_000;   // per HTTP call to the platform
+const POLL_INTERVAL_MS = 2_000;
+const MAX_POLL_MS = 280_000;         // stay under the 300s function maxDuration
 
 export const config = {
   api: { bodyParser: false },
 };
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function readBody(req) {
   return new Promise((resolve, reject) => {
@@ -21,38 +29,29 @@ function readBody(req) {
   });
 }
 
-function callUpstream(body) {
+// Minimal promise-based HTTPS request returning { status, body }.
+function httpsRequest(method, fullUrl, headers, body) {
   return new Promise((resolve, reject) => {
-    const url = new URL(API_URL);
-    const upstream = https.request(
-      {
-        hostname: url.hostname,
-        path: url.pathname,
-        method: 'POST',
-        headers: {
-          'X-API-Key': API_KEY,
-          'Content-Type': 'application/json',
-          'Content-Length': body.length,
-        },
-        timeout: UPSTREAM_TIMEOUT_MS,
-      },
-      (resp) => {
-        const chunks = [];
-        resp.on('data', (c) => chunks.push(c));
-        resp.on('end', () =>
-          resolve({
-            status: resp.statusCode,
-            contentType: resp.headers['content-type'] || 'text/plain',
-            body: Buffer.concat(chunks),
-          })
-        );
-        resp.on('error', reject);
-      }
-    );
-    upstream.on('error', reject);
-    upstream.on('timeout', () => upstream.destroy(new Error('upstream_timeout')));
-    upstream.write(body);
-    upstream.end();
+    const url = new URL(fullUrl);
+    const reqOpts = {
+      hostname: url.hostname,
+      path: url.pathname + url.search,
+      method,
+      headers,
+      timeout: REQUEST_TIMEOUT_MS,
+    };
+    const r = https.request(reqOpts, (resp) => {
+      const chunks = [];
+      resp.on('data', (c) => chunks.push(c));
+      resp.on('end', () =>
+        resolve({ status: resp.statusCode, body: Buffer.concat(chunks).toString('utf8') })
+      );
+      resp.on('error', reject);
+    });
+    r.on('error', reject);
+    r.on('timeout', () => r.destroy(new Error('upstream_timeout')));
+    if (body) r.write(body);
+    r.end();
   });
 }
 
@@ -68,46 +67,89 @@ export default async function handler(req, res) {
     return res.status(404).json({ error: 'Not found' });
   }
 
-  let body;
+  let rawBody;
   try {
-    body = await readBody(req);
+    rawBody = await readBody(req);
   } catch (e) {
-    return res.status(400).json({ error: 'read_body_failed', detail: e.message });
+    return res.status(400).json({ error: 'read_body_failed', message: e.message });
   }
 
   // Frontend sends JSON { image: <data URL>, category }; wrap it for the workflow.
   let payload;
   try {
-    const parsed = JSON.parse(body.toString('utf8'));
+    const parsed = JSON.parse(rawBody.toString('utf8'));
     if (!parsed.image) throw new Error('missing image');
     payload = Buffer.from(
-      JSON.stringify({
-        input: { image: parsed.image, category: parsed.category || 'income' },
-      })
+      JSON.stringify({ input: { image: parsed.image, category: parsed.category || 'income' } })
     );
   } catch (e) {
-    return res.status(400).json({ error: 'invalid_body', detail: e.message });
+    return res.status(400).json({ error: 'invalid_body', message: e.message });
   }
 
-  let lastErr;
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+  // 1) Submit (async) — retry a few times for cold starts / transient errors.
+  let submit, lastErr;
+  for (let attempt = 1; attempt <= SUBMIT_ATTEMPTS; attempt++) {
     try {
-      const result = await callUpstream(payload);
-      res.status(result.status);
-      res.setHeader('Content-Type', result.contentType);
-      res.setHeader('X-Upstream-Attempt', String(attempt));
-      return res.end(result.body);
+      submit = await httpsRequest('POST', API_ORIGIN + EXEC_PATH, {
+        'X-API-Key': API_KEY,
+        'X-Execution-Mode': 'async',
+        'Content-Type': 'application/json',
+        'Content-Length': payload.length,
+      }, payload);
+      if (submit.status >= 200 && submit.status < 300) break;
+      lastErr = new Error(`submit HTTP ${submit.status}: ${submit.body.slice(0, 200)}`);
+      submit = null;
     } catch (e) {
       lastErr = e;
-      if (attempt < MAX_ATTEMPTS) {
-        await new Promise((r) => setTimeout(r, 500 * attempt));
-      }
+      submit = null;
     }
+    if (attempt < SUBMIT_ATTEMPTS) await sleep(500 * attempt);
+  }
+  if (!submit) {
+    return res.status(502).json({ error: 'submit_failed', message: lastErr?.message || 'unknown' });
   }
 
-  res.status(502).json({
-    error: 'upstream_unreachable',
-    detail: lastErr?.message || 'unknown',
-    attempts: MAX_ATTEMPTS,
+  let statusUrl;
+  try {
+    statusUrl = JSON.parse(submit.body)?.data?.statusUrl;
+  } catch {}
+  if (!statusUrl) {
+    return res.status(502).json({ error: 'no_status_url', message: submit.body.slice(0, 300) });
+  }
+
+  // 2) Poll until the run finishes.
+  const deadline = Date.now() + MAX_POLL_MS;
+  while (Date.now() < deadline) {
+    let poll;
+    try {
+      poll = await httpsRequest('GET', API_ORIGIN + statusUrl, { 'X-API-Key': API_KEY });
+    } catch {
+      await sleep(POLL_INTERVAL_MS);
+      continue;
+    }
+
+    let data;
+    try { data = JSON.parse(poll.body)?.data; } catch {}
+    const status = data?.status;
+
+    if (status === 'completed') {
+      res.status(200);
+      res.setHeader('Content-Type', 'application/json');
+      // data.output is the response node ({ __responseNode, body, ... }); the
+      // frontend unwraps it the same way it unwraps sync/stream replies.
+      return res.end(JSON.stringify(data.output ?? data));
+    }
+    if (status === 'failed' || status === 'cancelled') {
+      return res.status(502).json({
+        error: 'workflow_' + status,
+        message: typeof data.error === 'string' ? data.error : JSON.stringify(data.error || status),
+      });
+    }
+    await sleep(POLL_INTERVAL_MS);
+  }
+
+  return res.status(504).json({
+    error: 'poll_timeout',
+    message: `分析逾時：背景執行超過 ${Math.round(MAX_POLL_MS / 1000)} 秒仍未完成`,
   });
 }

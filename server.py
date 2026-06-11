@@ -10,12 +10,27 @@ import urllib.error
 import json
 import sys
 import os
+import time
 
-# /stream avoids the platform's 30s sync timeout (SYSTEM_TIMEOUT) for long OCR jobs.
-# (/async is not deployed on this platform — returns 404.)
-API_URL = "https://platform-api-933489661561.asia-east1.run.app/api/v1/execute/manual-switch-vJtCm3RN/stream"
-API_KEY = "pk_tGg7VSAg_XhLgZIXTzH3VHAez1fL2wF2R5bt6sgox"
+# Async execution: submit with `X-Execution-Mode: async`, then poll the returned
+# statusUrl. This runs the workflow in the background and is the only mode that
+# avoids the platform's 30s synchronous-execution timeout (sync and /stream both
+# cap at 30s).
+API_ORIGIN = "https://platform-api-933489661561.asia-east1.run.app"
+EXEC_PATH = "/api/v1/execute/manual-switch-vJtCm3RN"
+API_KEY = "pk_dYA1rGzN_tXFx15j7OG6Sg94wTSq0JMtp9VwRq_q6"
 ACCESS_TOKEN = "ocr-x7k9q2pnmw5r3a8b"
+
+POLL_INTERVAL_S = 2
+MAX_POLL_S = 280
+
+
+class _ProxyError(Exception):
+    def __init__(self, code, error, message):
+        super().__init__(message)
+        self.code = code
+        self.error = error
+        self.message = message
 
 
 class ProxyHandler(http.server.SimpleHTTPRequestHandler):
@@ -81,37 +96,64 @@ class ProxyHandler(http.server.SimpleHTTPRequestHandler):
             }
         }).encode()
 
+        try:
+            output = self._run_async(payload)
+        except _ProxyError as e:
+            self._json(e.code, {"error": e.error, "message": e.message})
+            return
+        self._json(200, output)
+
+    def _run_async(self, payload):
+        # 1) Submit (async).
         req = urllib.request.Request(
-            API_URL,
+            API_ORIGIN + EXEC_PATH,
             data=payload,
             headers={
                 "X-API-Key": API_KEY,
+                "X-Execution-Mode": "async",
                 "Content-Type": "application/json",
             },
             method="POST",
         )
-
         try:
-            with urllib.request.urlopen(req) as resp:
-                resp_body = resp.read()
-                self.send_response(resp.status)
-                self._cors_headers()
-                self.send_header("Content-Type", resp.headers.get("Content-Type", "application/json"))
-                self.end_headers()
-                self.wfile.write(resp_body)
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                submit = json.loads(resp.read())
         except urllib.error.HTTPError as e:
-            data = e.read()
-            self.send_response(e.code)
-            self._cors_headers()
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(data)
+            raise _ProxyError(502, "submit_failed", f"HTTP {e.code}: {e.read()[:200]!r}")
         except Exception as e:
-            self.send_response(502)
-            self._cors_headers()
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(json.dumps({"error": str(e)}).encode())
+            raise _ProxyError(502, "submit_failed", str(e))
+
+        status_url = (submit.get("data") or {}).get("statusUrl")
+        if not status_url:
+            raise _ProxyError(502, "no_status_url", json.dumps(submit)[:300])
+
+        # 2) Poll until finished.
+        deadline = time.time() + MAX_POLL_S
+        while time.time() < deadline:
+            try:
+                preq = urllib.request.Request(API_ORIGIN + status_url, headers={"X-API-Key": API_KEY})
+                with urllib.request.urlopen(preq, timeout=30) as r:
+                    data = json.loads(r.read()).get("data") or {}
+            except Exception:
+                time.sleep(POLL_INTERVAL_S)
+                continue
+
+            status = data.get("status")
+            if status == "completed":
+                return data.get("output", data)
+            if status in ("failed", "cancelled"):
+                err = data.get("error")
+                raise _ProxyError(502, "workflow_" + status, err if isinstance(err, str) else json.dumps(err))
+            time.sleep(POLL_INTERVAL_S)
+
+        raise _ProxyError(504, "poll_timeout", f"背景執行超過 {MAX_POLL_S} 秒仍未完成")
+
+    def _json(self, code, obj):
+        self.send_response(code)
+        self._cors_headers()
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(json.dumps(obj).encode())
 
     def log_message(self, format, *args):
         print(f"[{self.log_date_time_string()}] {format % args}")
