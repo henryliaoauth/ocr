@@ -65,6 +65,12 @@
                         <input type="file" id="fileInput" accept="image/*" hidden>
                     </div>
 
+                    <select class="category-select" id="categorySelect">
+                        <option value="income">收入（存摺／薪轉／薪資單）</option>
+                        <option value="debt">負債（信用卡／貸款帳單）</option>
+                        <option value="id">證件</option>
+                    </select>
+
                     <div class="preview-section" id="previewSection" style="display: none;">
                         <div class="image-preview">
                             <img id="previewImage" alt="Preview">
@@ -75,11 +81,6 @@
                                 </svg>
                             </button>
                         </div>
-                        <select class="category-select" id="categorySelect">
-                            <option value="income">收入（存摺／薪轉／薪資單）</option>
-                            <option value="debt">負債（信用卡／貸款帳單）</option>
-                            <option value="id">證件</option>
-                        </select>
                         <button class="btn-analyze" id="analyzeBtn">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                 <polygon points="5 3 19 12 5 21 5 3"></polygon>
