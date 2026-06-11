@@ -109,56 +109,68 @@ class OCRApp {
             return;
         }
 
-        // Image is sent as base64 JSON (~1.37x inflation) and Vercel caps the
-        // request body at ~4.5MB, so keep the raw image at/under 3MB.
-        const targetBytes = 3 * 1024 * 1024;
-        let processed = file;
-        if (file.size > targetBytes) {
-            this.setStatus('processing', 'Compressing');
-            try {
-                processed = await this.compressImage(file, targetBytes);
-            } catch (e) {
-                this.showError('Image is too large to compress under the size limit');
-                this.setStatus('ready', 'Ready');
-                return;
-            }
+        // Always normalize before upload: downscale to a sane resolution and
+        // re-encode as JPEG. Smaller payload (image goes out as base64 JSON,
+        // ~1.37x; Vercel caps the body at ~4.5MB), strips EXIF, flattens
+        // transparency, and unifies the format. Target raw size <= 3MB.
+        this.setStatus('processing', 'Optimizing');
+        let processed;
+        try {
+            processed = await this.prepareImage(file, 3 * 1024 * 1024, 2400);
+        } catch (e) {
+            this.showError('無法處理這張圖片，請換一張');
             this.setStatus('ready', 'Ready');
+            return;
         }
+        this.setStatus('ready', 'Ready');
 
         this.currentFile = processed;
         this.showPreview(processed);
     }
 
-    compressImage(file, targetBytes) {
+    // Downscale (longest side <= maxDim, never upscale) and JPEG-encode, stepping
+    // quality — and if needed, dimensions — down until the blob is <= targetBytes.
+    prepareImage(file, targetBytes, maxDim) {
         return new Promise((resolve, reject) => {
             const url = URL.createObjectURL(file);
             const img = new Image();
             img.onload = async () => {
                 URL.revokeObjectURL(url);
-                const maxDim = 2400;
-                let { width, height } = img;
-                if (width > maxDim || height > maxDim) {
-                    const ratio = Math.min(maxDim / width, maxDim / height);
-                    width = Math.round(width * ratio);
-                    height = Math.round(height * ratio);
-                }
-                const canvas = document.createElement('canvas');
-                canvas.width = width;
-                canvas.height = height;
-                const ctx = canvas.getContext('2d');
-                ctx.fillStyle = '#ffffff';
-                ctx.fillRect(0, 0, width, height);
-                ctx.drawImage(img, 0, 0, width, height);
+                const baseName = (file.name || 'image').replace(/\.[^.]+$/, '') || 'image';
 
-                for (const quality of [0.85, 0.7, 0.55, 0.4]) {
-                    const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', quality));
-                    if (blob && blob.size <= targetBytes) {
-                        const baseName = file.name.replace(/\.[^.]+$/, '');
-                        resolve(new File([blob], baseName + '.jpg', { type: 'image/jpeg' }));
-                        return;
+                const encodeAtScale = async (scale) => {
+                    const w = Math.max(1, Math.round(img.width * scale));
+                    const h = Math.max(1, Math.round(img.height * scale));
+                    const canvas = document.createElement('canvas');
+                    canvas.width = w;
+                    canvas.height = h;
+                    const ctx = canvas.getContext('2d');
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fillRect(0, 0, w, h);
+                    ctx.drawImage(img, 0, 0, w, h);
+                    let last = null;
+                    for (const q of [0.92, 0.82, 0.7, 0.55, 0.42]) {
+                        const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', q));
+                        if (!blob) continue;
+                        last = blob;
+                        if (blob.size <= targetBytes) return blob;
                     }
+                    return last; // smallest achievable at this scale
+                };
+
+                // Start by fitting the longest side to maxDim (only ever shrink).
+                let scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+                let blob = await encodeAtScale(scale);
+                // Still too big at lowest quality? shrink dimensions and retry.
+                for (let i = 0; blob && blob.size > targetBytes && i < 4; i++) {
+                    scale *= 0.8;
+                    blob = await encodeAtScale(scale);
                 }
-                reject(new Error('Compression failed'));
+                if (!blob) {
+                    reject(new Error('encode failed'));
+                    return;
+                }
+                resolve(new File([blob], baseName + '.jpg', { type: 'image/jpeg' }));
             };
             img.onerror = () => {
                 URL.revokeObjectURL(url);
