@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Authme OCR</title>
-    <link rel="stylesheet" href="/ocr-x7k9q2pnmw5r3a8b/style.css">
+    <link rel="stylesheet" href="/ocr-x7k9q2pnmw5r3a8b/style.css?v=4">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
@@ -75,6 +75,11 @@
                                 </svg>
                             </button>
                         </div>
+                        <select class="category-select" id="categorySelect">
+                            <option value="income">收入（存摺／薪轉／薪資單）</option>
+                            <option value="debt">負債（信用卡／貸款帳單）</option>
+                            <option value="id">證件</option>
+                        </select>
                         <button class="btn-analyze" id="analyzeBtn">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                 <polygon points="5 3 19 12 5 21 5 3"></polygon>
@@ -89,8 +94,8 @@
                 <div class="panel-header">
                     <span class="panel-label">Output</span>
                     <div class="result-tabs" id="resultTabs" style="display: none;">
-                        <button class="tab-btn active" data-view="formatted">Rendered</button>
-                        <button class="tab-btn" data-view="markdown">Raw</button>
+                        <button class="tab-btn active" data-view="report">報告</button>
+                        <button class="tab-btn" data-view="source">原文 OCR</button>
                     </div>
                 </div>
                 <div class="panel-body">
@@ -98,7 +103,13 @@
                         <div class="scan-effect">
                             <div class="scan-line"></div>
                         </div>
-                        <p class="loading-text">Analyzing document<span class="loading-dots"></span></p>
+                        <p class="loading-text" id="loadingText">Analyzing document<span class="loading-dots"></span></p>
+                        <div class="progress-bar-wrap">
+                            <div class="progress-bar-track">
+                                <div class="progress-bar-fill" id="progressFill"></div>
+                            </div>
+                            <span class="progress-pct" id="progressPct">0%</span>
+                        </div>
                     </div>
 
                     <div class="empty-state" id="emptyState">
@@ -116,8 +127,8 @@
 
                     <div class="result-section" id="resultSection" style="display: none;">
                         <div class="result-content">
-                            <div id="formattedView" class="result-view active"></div>
-                            <textarea id="markdownView" class="result-view" readonly placeholder="Raw markdown output..."></textarea>
+                            <div id="reportView" class="result-view active"></div>
+                            <div id="sourceView" class="result-view"></div>
                         </div>
                         <div class="result-actions">
                             <button class="btn-action btn-copy" id="copyBtn">
@@ -149,6 +160,6 @@
         </main>
     </div>
 
-    <script src="/ocr-x7k9q2pnmw5r3a8b/script.js"></script>
+    <script src="/ocr-x7k9q2pnmw5r3a8b/script.js?v=4"></script>
 </body>
 </html>

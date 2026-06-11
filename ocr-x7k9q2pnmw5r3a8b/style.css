@@ -316,6 +316,14 @@ main {
     transform: translateY(0);
 }
 
+.btn-analyze:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+    pointer-events: none;
+    transform: none;
+    box-shadow: none;
+}
+
 /* --- Loading --- */
 .loading-section {
     flex: 1;
@@ -350,6 +358,37 @@ main {
 @keyframes scan {
     0%, 100% { top: 0; }
     50% { top: calc(100% - 2px); }
+}
+
+.progress-bar-wrap {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 200px;
+}
+
+.progress-bar-track {
+    flex: 1;
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.progress-bar-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--accent);
+    border-radius: 2px;
+    transition: width 0.3s ease;
+}
+
+.progress-pct {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    min-width: 32px;
+    text-align: right;
 }
 
 .loading-text {
@@ -453,8 +492,25 @@ main {
     display: block;
 }
 
+/* --- Raw markdown view (原文 OCR) --- */
+#sourceView .raw-markdown {
+    margin: 0;
+    padding: 24px;
+    min-height: 300px;
+    max-height: calc(100vh - 220px);
+    overflow: auto;
+    background: var(--paper);
+    color: var(--paper-text);
+    border-radius: var(--radius);
+    font-family: var(--font-mono, 'IBM Plex Mono', monospace);
+    font-size: 0.85rem;
+    line-height: 1.7;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
 /* --- Formatted View (Paper) --- */
-#formattedView {
+#reportView {
     background: var(--paper);
     color: var(--paper-text);
     border-radius: var(--radius);
@@ -469,20 +525,20 @@ main {
     box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.06);
 }
 
-#formattedView::-webkit-scrollbar {
+#reportView::-webkit-scrollbar {
     width: 6px;
 }
 
-#formattedView::-webkit-scrollbar-track {
+#reportView::-webkit-scrollbar-track {
     background: transparent;
 }
 
-#formattedView::-webkit-scrollbar-thumb {
+#reportView::-webkit-scrollbar-thumb {
     background: #cbd5e1;
     border-radius: 3px;
 }
 
-#formattedView h1 {
+#reportView h1 {
     font-family: var(--font-display);
     font-size: 1.8em;
     font-weight: 700;
@@ -493,7 +549,7 @@ main {
     letter-spacing: -0.02em;
 }
 
-#formattedView h2 {
+#reportView h2 {
     font-family: var(--font-display);
     font-size: 1.4em;
     font-weight: 600;
@@ -503,7 +559,7 @@ main {
     color: var(--paper-text);
 }
 
-#formattedView h3 {
+#reportView h3 {
     font-family: var(--font-display);
     font-size: 1.15em;
     font-weight: 600;
@@ -511,22 +567,22 @@ main {
     color: var(--paper-text);
 }
 
-#formattedView p {
+#reportView p {
     margin: 0 0 14px 0;
     line-height: 1.75;
 }
 
-#formattedView strong, #formattedView b { font-weight: 600; }
-#formattedView em { font-style: italic; }
+#reportView strong, #reportView b { font-weight: 600; }
+#reportView em { font-style: italic; }
 
-#formattedView table {
+#reportView table {
     width: 100%;
     border-collapse: collapse;
     margin: 16px 0;
     font-size: 0.9rem;
 }
 
-#formattedView th {
+#reportView th {
     font-weight: 600;
     padding: 8px 12px;
     border: 1px solid #ddd;
@@ -534,23 +590,23 @@ main {
     text-align: left;
 }
 
-#formattedView td {
+#reportView td {
     padding: 8px 12px;
     border: 1px solid #ddd;
 }
 
-#formattedView tr:nth-child(2n) {
+#reportView tr:nth-child(2n) {
     background: #f1f5f9;
 }
 
-#formattedView ul, #formattedView ol {
+#reportView ul, #reportView ol {
     margin: 0 0 14px 0;
     padding-left: 1.8em;
 }
 
-#formattedView li { margin: 4px 0; }
+#reportView li { margin: 4px 0; }
 
-#formattedView blockquote {
+#reportView blockquote {
     margin: 0 0 14px 0;
     padding: 8px 16px;
     color: var(--paper-secondary);
@@ -559,7 +615,7 @@ main {
     border-radius: 0 var(--radius) var(--radius) 0;
 }
 
-#formattedView code {
+#reportView code {
     padding: 2px 6px;
     font-size: 0.88em;
     background: #e2e8f0;
@@ -567,7 +623,7 @@ main {
     font-family: var(--font-mono);
 }
 
-#formattedView pre {
+#reportView pre {
     margin: 0 0 14px 0;
     padding: 16px;
     overflow: auto;
@@ -578,55 +634,49 @@ main {
     border: 1px solid #e2e8f0;
 }
 
-#formattedView pre code {
+#reportView pre code {
     padding: 0;
     background: transparent;
     font-size: 100%;
 }
 
-#formattedView hr {
+#reportView hr {
     height: 1px;
     margin: 24px 0;
     background: #dde4ee;
     border: 0;
 }
 
-#formattedView img {
+#reportView img {
     max-width: 100%;
     height: auto;
     margin: 14px 0;
     border-radius: 4px;
 }
 
-#formattedView a {
+#reportView a {
     color: #3b82f6;
     text-decoration: underline;
     text-underline-offset: 2px;
 }
 
-#formattedView a:hover {
+#reportView a:hover {
     color: var(--accent);
 }
 
-/* --- Raw Markdown View --- */
-#markdownView {
-    width: 100%;
+/* --- Source OCR View --- */
+#sourceView {
+    background: #f8fafc;
+    color: var(--paper-text);
+    border-radius: var(--radius);
+    padding: 32px;
     min-height: 300px;
     max-height: calc(100vh - 220px);
-    padding: 20px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
+    overflow-y: auto;
     font-family: var(--font-mono);
     font-size: 0.82rem;
     line-height: 1.7;
-    resize: vertical;
-    background: #f8fafc;
-    color: var(--text);
-}
-
-#markdownView:focus {
-    outline: none;
-    border-color: var(--accent);
+    border: 1px solid var(--border);
 }
 
 /* --- Action Buttons --- */
@@ -726,6 +776,35 @@ main {
     border-radius: 3px;
 }
 
+/* --- Category Select --- */
+.category-select {
+    width: 100%;
+    padding: 9px 12px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font-family: var(--font-body);
+    font-size: 0.88rem;
+    color: var(--text);
+    cursor: pointer;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    padding-right: 32px;
+    transition: border-color var(--transition);
+}
+
+.category-select:hover {
+    border-color: var(--border-hover);
+}
+
+.category-select:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(59,130,246,0.1);
+}
+
 /* --- Responsive --- */
 @media (max-width: 768px) {
     main {
@@ -744,13 +823,14 @@ main {
         padding: 36px 16px;
     }
 
-    #formattedView {
+    #reportView {
         padding: 20px;
         max-height: 60vh;
     }
 
-    #markdownView {
+    #sourceView {
         max-height: 60vh;
+        padding: 16px;
     }
 
     .result-actions {
