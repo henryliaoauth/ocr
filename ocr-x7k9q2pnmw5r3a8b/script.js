@@ -280,11 +280,18 @@ class OCRApp {
 
         // SSE stream: scan every `data:` line, parse the JSON event, and keep
         // the last one that contains a response node (execution:completed sits
-        // at the end and carries it under data.outputs).
+        // at the end and carries it under data.outputs). Also watch for an
+        // `event: error` frame the platform emits on timeout/failure.
         if (text.includes('data:')) {
             let found = null;
+            let errorMsg = null;
+            let inErrorEvent = false;
             for (const line of text.split('\n')) {
                 const l = line.trim();
+                if (l.startsWith('event:')) {
+                    inErrorEvent = l.slice(6).trim() === 'error';
+                    continue;
+                }
                 if (!l.startsWith('data:')) continue;
                 const raw = l.slice(5).trim();
                 if (!raw || raw === '[DONE]') continue;
@@ -292,13 +299,28 @@ class OCRApp {
                     const evt = JSON.parse(raw);
                     const node = this.findResponseNode(evt);
                     if (node) found = node;
-                } catch {}
+                    if (evt.type === 'execution:failed' || evt.error) {
+                        errorMsg = evt.message || evt.error || errorMsg;
+                    }
+                } catch {
+                    // Non-JSON data line under an `event: error` frame = the error text.
+                    if (inErrorEvent) errorMsg = raw;
+                }
             }
             if (found) return this.extractResponse(found);
+            if (errorMsg) throw new Error(this.friendlyError(errorMsg));
         }
 
         // Fallback: hand the raw text to extractResponse (last resort).
         return this.extractResponse(text);
+    }
+
+    // Map raw upstream error strings to clearer Chinese messages.
+    friendlyError(msg) {
+        if (/timeout after 30000|30000ms/i.test(msg)) {
+            return '分析逾時：此工作流在平台端執行超過 30 秒上限而被中止。請改用較小／較清晰的圖片，或在平台端縮短工作流（減少 agent 步驟、換較快的模型），或改用非同步執行。';
+        }
+        return msg;
     }
 
     setProgress(pct) {
