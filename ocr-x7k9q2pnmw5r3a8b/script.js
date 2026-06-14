@@ -2,8 +2,8 @@ class OCRApp {
     constructor() {
         this.initElements();
         this.bindEvents();
-        this.currentFile = null;
-        this.selectedCategory = 'income';
+        this.currentFiles = [];
+        this.selectedCategory = 'salaried';
         this.isAnalyzing = false;
         this.abortController = null;
 
@@ -19,7 +19,7 @@ class OCRApp {
         this.uploadArea = document.getElementById('uploadArea');
         this.fileInput = document.getElementById('fileInput');
         this.previewSection = document.getElementById('previewSection');
-        this.previewImage = document.getElementById('previewImage');
+        this.previewGrid = document.getElementById('previewGrid');
         this.analyzeBtn = document.getElementById('analyzeBtn');
         this.loadingSection = document.getElementById('loadingSection');
         this.resultSection = document.getElementById('resultSection');
@@ -30,7 +30,6 @@ class OCRApp {
         this.errorSection = document.getElementById('errorSection');
         this.errorMessage = document.getElementById('errorMessage');
         this.errorResetBtn = document.getElementById('errorResetBtn');
-        this.removeBtn = document.getElementById('removeBtn');
         this.categorySelect = document.getElementById('categorySelect');
         this.statusDot = document.querySelector('.status-dot');
         this.statusText = document.querySelector('.status-text');
@@ -49,7 +48,11 @@ class OCRApp {
         this.uploadArea.addEventListener('drop', this.handleDrop.bind(this));
         this.fileInput.addEventListener('change', this.handleFileSelect.bind(this));
         this.analyzeBtn.addEventListener('click', this.analyzeImage.bind(this));
-        this.removeBtn.addEventListener('click', this.reset.bind(this));
+        // Per-thumbnail remove (event delegation on the grid).
+        this.previewGrid.addEventListener('click', (e) => {
+            const btn = e.target.closest('.thumb-remove');
+            if (btn) this.removeFile(Number(btn.dataset.idx));
+        });
         this.copyBtn.addEventListener('click', this.copyResult.bind(this));
         this.resetBtn.addEventListener('click', this.reset.bind(this));
         this.errorResetBtn.addEventListener('click', this.reset.bind(this));
@@ -90,42 +93,54 @@ class OCRApp {
     handleDrop(e) {
         e.preventDefault();
         this.uploadArea.classList.remove('dragover');
-        const files = e.dataTransfer.files;
-        if (files.length > 0) this.processFile(files[0]);
+        if (e.dataTransfer.files.length > 0) this.processFiles(e.dataTransfer.files);
     }
 
     handleFileSelect(e) {
-        const file = e.target.files[0];
-        if (file) this.processFile(file);
+        if (e.target.files.length > 0) this.processFiles(e.target.files);
+        // Allow re-selecting the same file(s) again later.
+        e.target.value = '';
     }
 
-    async processFile(file) {
-        if (!file.type.startsWith('image/')) {
-            this.showError('Please select an image file');
-            return;
-        }
-        if (file.size > 50 * 1024 * 1024) {
-            this.showError('File size cannot exceed 50MB');
-            return;
-        }
-
-        // Always normalize before upload: downscale to a sane resolution and
-        // re-encode as JPEG. Smaller payload (image goes out as base64 JSON,
-        // ~1.37x; Vercel caps the body at ~4.5MB), strips EXIF, flattens
-        // transparency, and unifies the format. Target raw size <= 3MB.
+    // Validate + optimize each picked image and append it to currentFiles.
+    async processFiles(fileList) {
+        const files = Array.from(fileList);
         this.setStatus('processing', 'Optimizing');
-        let processed;
-        try {
-            processed = await this.prepareImage(file, 3 * 1024 * 1024, 2400);
-        } catch (e) {
-            this.showError('無法處理這張圖片，請換一張');
-            this.setStatus('ready', 'Ready');
-            return;
+        let skipped = 0;
+        for (const file of files) {
+            if (!file.type.startsWith('image/')) { skipped++; continue; }
+            if (file.size > 50 * 1024 * 1024) { skipped++; continue; }
+            // Always normalize before upload: downscale to a sane resolution and
+            // re-encode as JPEG. Smaller payload (each image goes out as base64
+            // JSON, ~1.37x; Vercel caps the body at ~4.5MB), strips EXIF, flattens
+            // transparency, and unifies the format. Target raw size <= 3MB.
+            try {
+                const processed = await this.prepareImage(file, 3 * 1024 * 1024, 2400);
+                this.currentFiles.push(processed);
+            } catch (e) {
+                skipped++;
+            }
         }
         this.setStatus('ready', 'Ready');
 
-        this.currentFile = processed;
-        this.showPreview(processed);
+        if (!this.currentFiles.length) {
+            this.showError('沒有可用的圖片，請選擇圖片檔');
+            return;
+        }
+        if (skipped) {
+            this.setStatus('ready', `已略過 ${skipped} 個非圖片／過大檔案`);
+        }
+        this.renderPreview();
+    }
+
+    removeFile(idx) {
+        if (!Number.isInteger(idx)) return;
+        this.currentFiles.splice(idx, 1);
+        if (this.currentFiles.length) {
+            this.renderPreview();
+        } else {
+            this.reset();
+        }
     }
 
     // Downscale (longest side <= maxDim, never upscale) and JPEG-encode, stepping
@@ -180,20 +195,26 @@ class OCRApp {
         });
     }
 
-    showPreview(file) {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            this.previewImage.src = e.target.result;
-            this.uploadArea.parentElement.style.display = 'none';
-            this.previewSection.style.display = 'flex';
-        };
-        reader.readAsDataURL(file);
+    async renderPreview() {
+        const urls = await Promise.all(this.currentFiles.map((f) => this.fileToDataURL(f)));
+        this.previewGrid.innerHTML = urls.map((src, i) => `
+            <div class="thumb">
+                <img src="${src}" alt="Preview ${i + 1}">
+                <button class="thumb-remove" data-idx="${i}" title="移除這張">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>`).join('');
+        this.uploadArea.parentElement.style.display = 'none';
+        this.previewSection.style.display = 'flex';
     }
 
     async analyzeImage() {
         // Guard against double-clicks: ignore while a run is already in flight.
         if (this.isAnalyzing) return;
-        if (!this.currentFile) {
+        if (!this.currentFiles.length) {
             this.showError('Please select an image first');
             return;
         }
@@ -210,7 +231,7 @@ class OCRApp {
             this.errorSection.style.display = 'none';
             this.loadingSection.style.display = 'flex';
 
-            const result = await this.callOCRAPI(this.currentFile, this.abortController.signal);
+            const result = await this.callOCRAPI(this.currentFiles, this.abortController.signal);
             this.showResult(result);
             this.setStatus('ready', 'Complete');
         } catch (error) {
@@ -237,6 +258,20 @@ class OCRApp {
         });
     }
 
+    // The workflow's `images` (files-type) input only ingests an array of file
+    // objects { name, type, data } where data is RAW base64 (no data: prefix).
+    // Plain data-URL strings are silently dropped ("未收到圖片"), so build the
+    // object form here.
+    async fileToImagePart(file) {
+        const durl = await this.fileToDataURL(file);
+        const comma = durl.indexOf(',');
+        return {
+            name: file.name || 'image.jpg',
+            type: file.type || 'image/jpeg',
+            data: comma >= 0 ? durl.slice(comma + 1) : durl,
+        };
+    }
+
     async errorMessage(response) {
         try {
             const j = JSON.parse(await response.text());
@@ -246,111 +281,60 @@ class OCRApp {
         }
     }
 
-    async callOCRAPI(file, signal) {
-        // Streaming flow: the proxy pipes the platform's /stream SSE straight
-        // back to us. We read it chunk-by-chunk for live feedback, accumulate
-        // the whole stream, then extract the final result from it once the
-        // stream ends. (Platform caps /stream at 30s — long runs get cut off.)
-        const image = await this.fileToDataURL(file);
+    async callOCRAPI(files, signal) {
+        // Async flow: submit the images, get back a status path, then poll it
+        // from the browser until the background run completes. This is the only
+        // mode that escapes the platform's 30s synchronous-execution cap; the
+        // tradeoff is no partial output (the poll returns until fully done).
+        // Splitting submit and each poll into separate short requests keeps every
+        // call well under Vercel's per-invocation time limit.
+        const images = await Promise.all(files.map((f) => this.fileToImagePart(f)));
         const stopProgress = this.startSimulatedProgress();
         const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
         try {
-            const res = await fetch(this.config.apiUrl, {
+            // 1) Submit — returns a status path to poll.
+            const subRes = await fetch(this.config.apiUrl, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'X-Access-Token': this.config.accessToken
                 },
-                body: JSON.stringify({ image, category: this.selectedCategory }),
+                body: JSON.stringify({ images, category: this.selectedCategory }),
                 signal
             });
-            if (!res.ok) throw new Error(await this.errorMessage(res));
+            if (!subRes.ok) throw new Error(await this.errorMessage(subRes));
+            const { statusPath } = await subRes.json();
+            if (!statusPath) throw new Error('提交失敗：未取得查詢路徑');
 
-            // No streaming support in this browser/runtime — read it all at once.
-            if (!res.body || !res.body.getReader) {
-                return this.extractFromText(await res.text());
-            }
+            // 2) Poll until the background run finishes (cap ~9 min — multi-doc
+            // analysis with several images can take a while).
+            const deadline = Date.now() + 540000;
+            while (Date.now() < deadline) {
+                await sleep(2000);
+                const pollRes = await fetch(
+                    `${this.config.apiUrl}?status=${encodeURIComponent(statusPath)}`,
+                    { headers: { 'X-Access-Token': this.config.accessToken }, signal }
+                );
+                if (!pollRes.ok) throw new Error(await this.errorMessage(pollRes));
+                const data = await pollRes.json();
 
-            const reader = res.body.getReader();
-            const decoder = new TextDecoder();
-            let buffer = '';   // holds an incomplete trailing line between chunks
-            let full = '';     // the entire stream, for final extraction
-
-            // Reset per-run stream state (filled in by handleStreamLine).
-            this._streamResult = null;
-            this._streamError = null;
-            this._inErrorEvent = false;
-
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                const chunk = decoder.decode(value, { stream: true });
-                full += chunk;
-                buffer += chunk;
-                // Parse each complete line for live feedback / rendering.
-                let nl;
-                while ((nl = buffer.indexOf('\n')) >= 0) {
-                    this.handleStreamLine(buffer.slice(0, nl));
-                    buffer = buffer.slice(nl + 1);
+                if (data.status === 'completed') {
+                    this.setProgress(100);
+                    await sleep(200);
+                    // data.output is the response node ({ __responseNode, body, ... }).
+                    return this.extractResponse(data.output ?? data);
                 }
-                // The result arrives in one event (execution:completed) — render
-                // the instant we have it, don't wait for the socket to close.
-                if (this._streamResult) break;
+                if (data.status === 'failed' || data.status === 'cancelled') {
+                    const detail = typeof data.error === 'string'
+                        ? data.error
+                        : (data.error ? JSON.stringify(data.error) : '分析失敗');
+                    throw new Error(this.friendlyError(detail));
+                }
             }
-            if (buffer.trim()) this.handleStreamLine(buffer);
-
-            this.setProgress(100);
-            await sleep(200);
-            if (this._streamError) throw new Error(this.friendlyError(this._streamError));
-            if (this._streamResult) return this._streamResult;
-            return this.extractFromText(full);
+            throw new Error('分析逾時：背景執行超過 9 分鐘仍未完成');
         } finally {
             stopProgress();
-        }
-    }
-
-    // Handle one raw line of the SSE stream: track error frames, surface live
-    // progress in the loading text, and render the result the moment the event
-    // carrying it (execution:completed) arrives.
-    handleStreamLine(line) {
-        const l = line.trim();
-        if (!l) return;
-        if (l.startsWith('event:')) {
-            this._inErrorEvent = l.slice(6).trim() === 'error';
-            return;
-        }
-        if (!l.startsWith('data:')) return;
-        const raw = l.slice(5).trim();
-        if (!raw || raw === '[DONE]') return;
-
-        let evt;
-        try {
-            evt = JSON.parse(raw);
-        } catch {
-            // Non-JSON data line under an `event: error` frame = the error text.
-            if (this._inErrorEvent) this._streamError = raw;
-            return;
-        }
-        console.log('[sse]', evt.type || '?', evt);
-
-        if (evt.type === 'execution:failed' || evt.error) {
-            this._streamError = evt.message || evt.error || this._streamError;
-            return;
-        }
-
-        // If this event carries the response node, render it live.
-        const node = this.findResponseNode(evt);
-        if (node) {
-            this._streamResult = this.extractResponse(node);
-            this.showResult(this._streamResult);
-            return;
-        }
-
-        // Otherwise just reflect the current stage in the loading text.
-        const label = evt.type || evt.event || evt.status;
-        if (label && this.loadingText.firstChild) {
-            this.loadingText.firstChild.nodeValue = `Analyzing · ${label}`;
         }
     }
 
@@ -596,13 +580,14 @@ class OCRApp {
         this.isAnalyzing = false;
         this.analyzeBtn.disabled = false;
 
-        this.currentFile = null;
+        this.currentFiles = [];
         this.fileInput.value = '';
         this.currentReportMarkdown = '';
         this.currentSourceMarkdown = '';
-        this.selectedCategory = 'income';
-        this.categorySelect.value = 'income';
+        this.selectedCategory = 'salaried';
+        this.categorySelect.value = 'salaried';
 
+        this.previewGrid.innerHTML = '';
         this.uploadArea.parentElement.style.display = '';
         this.previewSection.style.display = 'none';
         this.loadingSection.style.display = 'none';

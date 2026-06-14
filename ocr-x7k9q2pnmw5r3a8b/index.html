@@ -48,9 +48,9 @@
                 </div>
                 <div class="panel-body">
                     <select class="category-select" id="categorySelect">
-                        <option value="income">收入（存摺／薪轉／薪資單）</option>
-                        <option value="debt">負債（信用卡／貸款帳單）</option>
-                        <option value="id">證件</option>
+                        <option value="salaried">上班族（固定機構受雇）</option>
+                        <option value="self_employed">自營商 / 公司負責人或股東</option>
+                        <option value="homemaker">家管 / 退休 / 自由業</option>
                     </select>
 
                     <div class="upload-section">
@@ -63,24 +63,23 @@
                                         <line x1="12" y1="3" x2="12" y2="15"/>
                                     </svg>
                                 </div>
-                                <p class="upload-label">Drop image here</p>
-                                <p class="upload-hint">or click to browse</p>
-                                <p class="upload-formats">JPG, PNG, GIF, BMP · up to 50MB (auto-optimized before upload)</p>
+                                <p class="upload-label">Drop images here</p>
+                                <p class="upload-hint">or click to browse · 可一次選多張</p>
+                                <p class="upload-formats">JPG, PNG, GIF, BMP · 每張上限 50MB（上傳前自動最佳化）</p>
                             </div>
                         </label>
-                        <input type="file" id="fileInput" accept="image/*" hidden>
+                        <input type="file" id="fileInput" accept="image/*" multiple hidden>
                     </div>
 
                     <div class="preview-section" id="previewSection" style="display: none;">
-                        <div class="image-preview">
-                            <img id="previewImage" alt="Preview">
-                            <button class="btn-remove" id="removeBtn" title="Remove image">
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                    <line x1="18" y1="6" x2="6" y2="18"></line>
-                                    <line x1="6" y1="6" x2="18" y2="18"></line>
-                                </svg>
-                            </button>
-                        </div>
+                        <div class="preview-grid" id="previewGrid"></div>
+                        <label class="btn-add-more" for="fileInput">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <line x1="12" y1="5" x2="12" y2="19"></line>
+                                <line x1="5" y1="12" x2="19" y2="12"></line>
+                            </svg>
+                            加入更多圖片
+                        </label>
                         <button class="btn-analyze" id="analyzeBtn">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                 <polygon points="5 3 19 12 5 21 5 3"></polygon>

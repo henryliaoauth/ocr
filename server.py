@@ -1,25 +1,37 @@
 #!/usr/bin/env python3
 """
 Local dev server: serves static files + proxies /api/ocr to the OCR workflow.
-Mirrors the Vercel function (api/ocr.js): POSTs to the platform's /stream
-endpoint and pipes the Server-Sent Events straight back to the browser.
+Mirrors the Vercel function (api/ocr.js): async execution — submit with
+`X-Execution-Mode: async`, then let the browser poll the returned statusUrl via
+GET /api/ocr?status=... until the background run completes. This is the only mode
+that escapes the platform's 30s synchronous-execution cap.
 """
 
 import http.server
 import urllib.request
 import urllib.error
+import urllib.parse
 import json
 import sys
 import os
 
-# Streaming execution: POST to the platform's /stream endpoint and pipe the SSE
-# response straight back to the client so it can render progress / results live.
-# NOTE: the platform caps /stream (and sync) at 30s — longer runs get cut off
-# upstream. The async submit+poll mode avoids that cap but shows no partial output.
 API_ORIGIN = "https://platform-api-933489661561.asia-east1.run.app"
-STREAM_PATH = "/api/v1/execute/manual-switch-vJtCm3RN/stream"
-API_KEY = "pk_dYA1rGzN_tXFx15j7OG6Sg94wTSq0JMtp9VwRq_q6"
+EXEC_PATH = "/api/v1/execute/-uAcfJDY9"
+API_KEY = "pk_KTuwHE8T_4wPjcaFPu0MSpracybZez5swbp5gRFRt"
 ACCESS_TOKEN = "ocr-x7k9q2pnmw5r3a8b"
+
+REQUEST_TIMEOUT = 30  # per HTTP call to the platform
+
+
+# Only allow polling the platform's status routes (prevents using the proxy +
+# API key as an open SSRF proxy to arbitrary upstream paths).
+def is_valid_status_path(p):
+    return (
+        isinstance(p, str)
+        and p.startswith("/api/v1/execute/status/")
+        and ".." not in p
+        and "://" not in p
+    )
 
 
 class ProxyHandler(http.server.SimpleHTTPRequestHandler):
@@ -40,22 +52,62 @@ class ProxyHandler(http.server.SimpleHTTPRequestHandler):
         self._cors_headers()
         self.end_headers()
 
+    def do_GET(self):
+        parsed = urllib.parse.urlparse(self.path)
+        if parsed.path == "/api/ocr":
+            if self.headers.get("X-Access-Token") != ACCESS_TOKEN:
+                self.send_error(404)
+                return
+            self._poll(urllib.parse.parse_qs(parsed.query))
+            return
+        # Everything else: static file serving.
+        super().do_GET()
+
     def do_POST(self):
         if self.path == "/api/ocr":
             if self.headers.get("X-Access-Token") != ACCESS_TOKEN:
                 self.send_error(404)
                 return
-            self._stream_ocr()
+            self._submit()
         else:
             self.send_error(404)
 
     def _cors_headers(self):
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, X-API-Key, X-Access-Token")
 
-    # Open the upstream SSE stream and pipe it through to the client unbuffered.
-    def _stream_ocr(self):
+    # ----- Poll: GET /api/ocr?status=<statusPath> -----
+    def _poll(self, query):
+        status_path = (query.get("status") or [None])[0]
+        if not is_valid_status_path(status_path):
+            self._json(400, {"error": "invalid_status_path", "message": "bad or missing status path"})
+            return
+        req = urllib.request.Request(
+            API_ORIGIN + status_path,
+            headers={"X-API-Key": API_KEY},
+            method="GET",
+        )
+        try:
+            resp = urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT)
+            raw = resp.read().decode("utf-8")
+        except urllib.error.HTTPError as e:
+            self._json(502, {"error": "poll_failed", "message": f"HTTP {e.code}: {e.read()[:200]!r}"})
+            return
+        except Exception as e:
+            self._json(502, {"error": "poll_failed", "message": str(e)})
+            return
+        try:
+            data = json.loads(raw).get("data")
+        except Exception:
+            data = None
+        if not data:
+            self._json(502, {"error": "poll_unparsable", "message": raw[:300]})
+            return
+        self._json(200, data)
+
+    # ----- Submit: POST /api/ocr { images, category } -> { statusPath } -----
+    def _submit(self):
         content_length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(content_length)
 
@@ -65,54 +117,54 @@ class ProxyHandler(http.server.SimpleHTTPRequestHandler):
             self._json(400, {"error": "invalid_body", "message": "invalid JSON body"})
             return
 
-        image = data.get("image")
-        if not image:
-            self._json(400, {"error": "missing_image", "message": "missing image"})
+        # Accept either `images` (array, new multi-image flow) or a single `image`.
+        images = data.get("images")
+        if isinstance(images, list):
+            images = [i for i in images if i]
+        elif data.get("image"):
+            images = [data.get("image")]
+        else:
+            images = []
+        if not images:
+            self._json(400, {"error": "missing_images", "message": "missing images"})
             return
 
         payload = json.dumps({
             "input": {
-                "image": image,
-                "category": data.get("category") or "income",
+                "images": images,
+                "category": data.get("category") or "salaried",
             }
         }).encode()
 
         req = urllib.request.Request(
-            API_ORIGIN + STREAM_PATH,
+            API_ORIGIN + EXEC_PATH,
             data=payload,
             headers={
                 "X-API-Key": API_KEY,
+                "X-Execution-Mode": "async",
                 "Content-Type": "application/json",
-                "Accept": "text/event-stream",
             },
             method="POST",
         )
         try:
-            resp = urllib.request.urlopen(req, timeout=295)
+            resp = urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT)
+            raw = resp.read().decode("utf-8")
         except urllib.error.HTTPError as e:
-            self._json(502, {"error": "stream_failed", "message": f"HTTP {e.code}: {e.read()[:200]!r}"})
+            self._json(502, {"error": "submit_failed", "message": f"HTTP {e.code}: {e.read()[:200]!r}"})
             return
         except Exception as e:
-            self._json(502, {"error": "stream_failed", "message": str(e)})
+            self._json(502, {"error": "submit_failed", "message": str(e)})
             return
 
-        self.send_response(200)
-        self._cors_headers()
-        self.send_header("Content-Type", resp.headers.get("Content-Type") or "text/event-stream; charset=utf-8")
-        self.send_header("X-Accel-Buffering", "no")
-        self.end_headers()
         try:
-            while True:
-                chunk = resp.read(512)
-                if not chunk:
-                    break
-                self.wfile.write(chunk)
-                self.wfile.flush()
+            status_url = json.loads(raw).get("data", {}).get("statusUrl")
         except Exception:
-            # Client disconnected or upstream dropped — just stop.
-            pass
-        finally:
-            resp.close()
+            status_url = None
+        if not status_url:
+            self._json(502, {"error": "no_status_url", "message": raw[:300]})
+            return
+
+        self._json(200, {"statusPath": status_url})
 
     def _json(self, code, obj):
         self.send_response(code)
