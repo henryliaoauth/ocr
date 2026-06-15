@@ -716,15 +716,19 @@ class OCRApp {
         this.progressPct.textContent = pct + '%';
     }
 
-    // Eases the bar toward 90% on a timer; returns a stop function.
+    // Eases the bar slowly toward 95% on a timer; returns a stop function.
+    // There's no real progress to read (async runs report nothing until done),
+    // so the curve is tuned to feel like a multi-minute analysis rather than
+    // racing to the cap in a few seconds: a gentle ease-out that then crawls.
     startSimulatedProgress() {
         let pct = 0;
+        const cap = 95;
         this.setProgress(0);
         const id = setInterval(() => {
-            pct += Math.max(0.5, (90 - pct) * 0.07);
-            if (pct > 90) pct = 90;
+            pct += Math.max(0.12, (cap - pct) * 0.012);
+            if (pct > cap) pct = cap;
             this.setProgress(Math.round(pct));
-        }, 200);
+        }, 350);
         return () => clearInterval(id);
     }
 
