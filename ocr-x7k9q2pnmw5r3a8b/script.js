@@ -2,6 +2,7 @@ class OCRApp {
     constructor() {
         this.initElements();
         this.bindEvents();
+        this.initResizer();
         this.currentFiles = [];
         this.selectedCategory = 'salaried';
         this.isAnalyzing = false;
@@ -35,6 +36,10 @@ class OCRApp {
         this.errorMessage = document.getElementById('errorMessage');
         this.errorResetBtn = document.getElementById('errorResetBtn');
         this.categorySelect = document.getElementById('categorySelect');
+        this.stageEmpty = document.getElementById('stageEmpty');
+        this.stageCount = document.getElementById('stageCount');
+        this.sourceActions = document.getElementById('sourceActions');
+        this.actionHint = document.getElementById('actionHint');
         this.sampleSection = document.getElementById('sampleSection');
         this.sampleGrid = document.getElementById('sampleGrid');
         this.sampleLoadAll = document.getElementById('sampleLoadAll');
@@ -56,6 +61,17 @@ class OCRApp {
         this.uploadArea.addEventListener('dragover', this.handleDragOver.bind(this));
         this.uploadArea.addEventListener('dragleave', this.handleDragLeave.bind(this));
         this.uploadArea.addEventListener('drop', this.handleDrop.bind(this));
+        // The center stage doubles as a drop target so documents can be dragged
+        // straight onto the (wide) viewing area, not only the left rail's dropzone.
+        if (this.stageEmpty) {
+            this.stageEmpty.addEventListener('dragover', (e) => { e.preventDefault(); this.stageEmpty.classList.add('dragover'); });
+            this.stageEmpty.addEventListener('dragleave', (e) => { e.preventDefault(); this.stageEmpty.classList.remove('dragover'); });
+            this.stageEmpty.addEventListener('drop', (e) => {
+                e.preventDefault();
+                this.stageEmpty.classList.remove('dragover');
+                if (e.dataTransfer.files.length > 0) this.processFiles(e.dataTransfer.files);
+            });
+        }
         this.fileInput.addEventListener('change', this.handleFileSelect.bind(this));
         this.analyzeBtn.addEventListener('click', this.analyzeImage.bind(this));
         // Per-thumbnail remove / zoom (event delegation on the grid).
@@ -97,6 +113,74 @@ class OCRApp {
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape' && this.lightbox && this.lightbox.classList.contains('open')) {
                 this.closeLightbox();
+            }
+        });
+    }
+
+    // Drag the splitter between the center stage and the analysis column to
+    // rebalance their widths. The center flexes; we only ever set the right
+    // column's width (a CSS custom property), and remember it across visits.
+    initResizer() {
+        const main = document.querySelector('main');
+        const resizer = document.getElementById('colResizer');
+        const right = document.querySelector('.panel-output');
+        if (!main || !resizer || !right) return;
+
+        const MIN = 320;          // analysis column never narrower than this
+        const RAIL = 280;         // left rail upper bound
+        const CENTER_MIN = 360;   // keep the document stage usable
+        const maxRight = () => Math.max(MIN, main.clientWidth - RAIL - CENTER_MIN - 6);
+        const clampW = (w) => Math.max(MIN, Math.min(maxRight(), w));
+        const apply = (w) => main.style.setProperty('--right-w', clampW(w) + 'px');
+        const save = () => {
+            try { localStorage.setItem('ocrRightW', main.style.getPropertyValue('--right-w')); } catch (e) {}
+        };
+
+        // Restore a saved width (re-clamped to the current viewport).
+        try {
+            const saved = parseFloat(localStorage.getItem('ocrRightW'));
+            if (saved > 0) apply(saved);
+        } catch (e) {}
+
+        let startX = 0, startW = 0, dragging = false;
+        resizer.addEventListener('pointerdown', (e) => {
+            dragging = true;
+            startX = e.clientX;
+            startW = right.getBoundingClientRect().width;
+            resizer.setPointerCapture(e.pointerId);
+            resizer.classList.add('dragging');
+            document.body.style.userSelect = 'none';
+        });
+        resizer.addEventListener('pointermove', (e) => {
+            if (!dragging) return;
+            // Dragging the splitter left widens the right (analysis) column.
+            apply(startW - (e.clientX - startX));
+        });
+        const end = (e) => {
+            if (!dragging) return;
+            dragging = false;
+            resizer.classList.remove('dragging');
+            document.body.style.userSelect = '';
+            try { resizer.releasePointerCapture(e.pointerId); } catch (err) {}
+            save();
+        };
+        resizer.addEventListener('pointerup', end);
+        resizer.addEventListener('pointercancel', end);
+
+        // Keyboard nudge for accessibility.
+        resizer.addEventListener('keydown', (e) => {
+            const cur = right.getBoundingClientRect().width;
+            if (e.key === 'ArrowLeft') apply(cur + 24);
+            else if (e.key === 'ArrowRight') apply(cur - 24);
+            else return;
+            e.preventDefault();
+            save();
+        });
+
+        // Re-clamp when the viewport shrinks past the saved width.
+        window.addEventListener('resize', () => {
+            if (main.style.getPropertyValue('--right-w')) {
+                apply(right.getBoundingClientRect().width);
             }
         });
     }
@@ -179,7 +263,7 @@ class OCRApp {
         if (skipped) {
             this.setStatus('ready', `已略過 ${skipped} 個非圖片／過大檔案`);
         }
-        this.renderPreview();
+        this.renderPreview(true);
     }
 
     removeFile(idx) {
@@ -269,7 +353,7 @@ class OCRApp {
         try {
             const file = await this.fetchSampleFile(path, name);
             this.currentFiles.push(file);
-            await this.renderPreview();
+            await this.renderPreview(true);
         } catch (e) {
             this.showError('範例載入失敗，請稍後再試');
         } finally {
@@ -288,7 +372,7 @@ class OCRApp {
                 this.currentFiles.push(file);
             } catch (e) { /* skip the ones that fail */ }
         }
-        if (this.currentFiles.length) await this.renderPreview();
+        if (this.currentFiles.length) await this.renderPreview(true);
         this.syncSampleSelected();
     }
 
@@ -373,28 +457,72 @@ class OCRApp {
         return Promise.all(files.map((f) => this.prepareImage(f, per, maxDim)));
     }
 
-    async renderPreview() {
+    async renderPreview(scrollToNew = false) {
         const urls = await Promise.all(this.currentFiles.map((f) => this.fileToDataURL(f)));
-        this.previewGrid.innerHTML = urls.map((src, i) => `
-            <div class="thumb">
-                <img src="${src}" alt="Preview ${i + 1}" data-zoom="${src}" title="點擊放大檢視">
-                <button class="thumb-zoom" data-zoom="${src}" title="放大檢視">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <circle cx="11" cy="11" r="7"></circle>
-                        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-                        <line x1="11" y1="8" x2="11" y2="14"></line>
-                        <line x1="8" y1="11" x2="14" y2="11"></line>
-                    </svg>
-                </button>
-                <button class="thumb-remove" data-idx="${i}" title="移除這張">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <line x1="18" y1="6" x2="6" y2="18"></line>
-                        <line x1="6" y1="6" x2="18" y2="18"></line>
-                    </svg>
-                </button>
-            </div>`).join('');
-        this.uploadArea.parentElement.style.display = 'none';
+        this.previewGrid.innerHTML = urls.map((src, i) => {
+            const idx = String(i + 1).padStart(2, '0');
+            const name = this.escapeHtml(this.currentFiles[i].name || `文件 ${i + 1}`);
+            return `
+            <figure class="doc-card">
+                <figcaption class="doc-head">
+                    <span class="doc-index">${idx}</span>
+                    <span class="doc-name" title="${name}">${name}</span>
+                    <span class="doc-tools">
+                        <button class="thumb-zoom" data-zoom="${src}" title="放大檢視">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="11" cy="11" r="7"></circle>
+                                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                                <line x1="11" y1="8" x2="11" y2="14"></line>
+                                <line x1="8" y1="11" x2="14" y2="11"></line>
+                            </svg>
+                        </button>
+                        <button class="thumb-remove" data-idx="${i}" title="移除這張">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <line x1="18" y1="6" x2="6" y2="18"></line>
+                                <line x1="6" y1="6" x2="18" y2="18"></line>
+                            </svg>
+                        </button>
+                    </span>
+                </figcaption>
+                <div class="doc-image">
+                    <img src="${src}" alt="Preview ${i + 1}" data-zoom="${src}" title="點擊放大檢視">
+                </div>
+            </figure>`;
+        }).join('');
+        const count = this.currentFiles.length;
+        if (this.stageEmpty) this.stageEmpty.style.display = 'none';
+        if (this.stageCount) {
+            this.stageCount.textContent = `${count} 份`;
+            this.stageCount.style.display = 'inline-flex';
+        }
+        // Keep the primary action visible in the left rail and reflect the count
+        // there too, so the user sees the document was added without having to
+        // scroll the (growing) center stage.
+        if (this.sourceActions) this.sourceActions.style.display = 'flex';
+        if (this.actionHint) this.actionHint.textContent = `已選 ${count} 份`;
         this.previewSection.style.display = 'flex';
+
+        // After adding, scroll the new (last) page into view and flash it so the
+        // user can tell their click landed even when the stack runs off-screen.
+        // Wait for the new image to load first, otherwise the card has ~0 height
+        // and scrollIntoView lands in the wrong place.
+        if (scrollToNew) {
+            const last = this.previewGrid.lastElementChild;
+            if (last) {
+                const reveal = () => {
+                    last.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    last.classList.add('doc-card--flash');
+                    last.addEventListener('animationend', () => last.classList.remove('doc-card--flash'), { once: true });
+                };
+                const img = last.querySelector('img');
+                if (img && !img.complete) {
+                    img.addEventListener('load', reveal, { once: true });
+                    img.addEventListener('error', reveal, { once: true });
+                } else {
+                    reveal();
+                }
+            }
+        }
     }
 
     async analyzeImage() {
@@ -812,6 +940,10 @@ class OCRApp {
 
         this.previewGrid.innerHTML = '';
         this.uploadArea.parentElement.style.display = '';
+        if (this.stageEmpty) this.stageEmpty.style.display = '';
+        if (this.stageCount) this.stageCount.style.display = 'none';
+        if (this.sourceActions) this.sourceActions.style.display = 'none';
+        if (this.actionHint) this.actionHint.textContent = '已選 0 份';
         this.previewSection.style.display = 'none';
         this.loadingSection.style.display = 'none';
         this.resultSection.style.display = 'none';

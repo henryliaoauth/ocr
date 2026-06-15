@@ -49,10 +49,14 @@ body {
 }
 
 /* --- App Shell --- */
+/* Lock the shell to the viewport so each column scrolls inside its own body
+   (the left rail's action bar stays pinned, the center stage scrolls on its
+   own). On narrow/stacked layouts this is lifted so the page scrolls normally. */
 .app {
     display: flex;
     flex-direction: column;
-    min-height: 100vh;
+    height: 100vh;
+    overflow: hidden;
 }
 
 /* --- Top Bar --- */
@@ -127,10 +131,69 @@ body {
 main {
     flex: 1;
     display: grid;
-    grid-template-columns: minmax(280px, 1fr) minmax(400px, 2fr);
+    /* Four tracks: a narrow control rail, the document "light table", a draggable
+       splitter, and the analysis. The center flexes; the analysis width is a
+       custom property the splitter (and saved preference) write to. */
+    --right-w: clamp(420px, 40vw, 700px);
+    grid-template-columns: minmax(240px, 280px) minmax(360px, 1fr) 6px var(--right-w);
     gap: 0;
     background: var(--bg);
     min-height: 0;
+}
+
+/* --- Draggable column splitter (center | output) --- */
+.col-resizer {
+    position: relative;
+    cursor: col-resize;
+    background: var(--bg-elevated);
+    touch-action: none;
+}
+
+.col-resizer::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 50%;
+    width: 1px;
+    transform: translateX(-50%);
+    background: var(--border);
+    transition: background var(--transition), width var(--transition);
+}
+
+/* Grip handle so the splitter reads as draggable. */
+.col-resizer::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 4px;
+    height: 36px;
+    border-radius: 3px;
+    background: var(--border-hover);
+    transition: background var(--transition);
+}
+
+.col-resizer:hover::before,
+.col-resizer.dragging::before {
+    width: 2px;
+    background: var(--accent);
+}
+
+.col-resizer:hover::after,
+.col-resizer.dragging::after {
+    background: var(--accent);
+}
+
+.col-resizer:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+}
+
+/* The splitter provides the divider between center and output. */
+.panel-stage {
+    border-right: none;
 }
 
 /* --- Panels --- */
@@ -153,6 +216,11 @@ main {
     padding: 12px 20px;
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
+}
+
+.panel-output .panel-header {
+    justify-content: flex-start;
+    gap: 16px;
 }
 
 .panel-label {
@@ -243,86 +311,217 @@ main {
     letter-spacing: 0.05em;
 }
 
-/* --- Preview --- */
-.preview-section {
+/* --- Center stage: the document "light table" --- */
+.panel-stage > .panel-body {
+    /* A cool, slightly recessed surface so the white document pages read as
+       sheets laid out on a desk and visually pop off the rail/output panels. */
+    background: linear-gradient(180deg, #eef2f7 0%, #e6ecf4 100%);
+    box-shadow: inset 0 1px 0 rgba(15, 23, 42, 0.04);
+    padding: 22px;
+}
+
+.stage-count {
+    display: inline-flex;
+    align-items: center;
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.06em;
+    color: var(--text-secondary);
+    background: #eef2f7;
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 2px 11px;
+}
+
+.stage-empty {
+    flex: 1;
     display: flex;
     flex-direction: column;
+    align-items: center;
+    justify-content: center;
     gap: 12px;
-}
-
-.preview-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
-    gap: 10px;
-}
-
-.thumb {
-    position: relative;
-    border-radius: var(--radius);
-    overflow: hidden;
-    background: var(--bg);
-    border: 1px solid var(--border);
-    aspect-ratio: 1 / 1;
-}
-
-.thumb img {
-    display: block;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-}
-
-.thumb-remove {
-    position: absolute;
-    top: 6px;
-    right: 6px;
-    width: 26px;
-    height: 26px;
-    border-radius: 50%;
-    border: none;
-    background: rgba(0, 0, 0, 0.55);
-    color: #fff;
+    min-height: 320px;
+    padding: 48px 24px;
+    text-align: center;
+    color: var(--text-muted);
+    background: rgba(255, 255, 255, 0.45);
+    border: 1.5px dashed var(--border-hover);
+    border-radius: var(--radius-lg);
     cursor: pointer;
+    transition: all var(--transition);
+}
+
+.stage-empty:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: rgba(255, 255, 255, 0.7);
+}
+
+.stage-empty.dragover {
+    border-color: var(--accent);
+    background: var(--accent-dim);
+    color: var(--accent);
+}
+
+.stage-empty-icon { opacity: 0.6; }
+
+.stage-empty-title {
+    font-family: var(--font-display);
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.stage-empty:hover .stage-empty-title { color: var(--accent); }
+
+.stage-empty-hint {
+    font-size: 0.82rem;
+    color: var(--text-muted);
+}
+
+.preview-section {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+
+/* Pages stack top-to-bottom at full column width — the largest view. */
+.preview-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+
+.doc-card {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 24px rgba(15, 23, 42, 0.07);
+    transition: transform var(--transition), box-shadow var(--transition);
+}
+
+.doc-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 14px 36px rgba(15, 23, 42, 0.13);
+}
+
+.doc-head {
     display: flex;
     align-items: center;
-    justify-content: center;
-    transition: all var(--transition);
-    backdrop-filter: blur(4px);
+    gap: 10px;
+    padding: 10px 12px 10px 14px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-elevated);
 }
 
-.thumb-remove:hover {
-    background: var(--error);
+.doc-index {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    color: var(--accent);
+    background: var(--accent-dim);
+    border-radius: 5px;
+    padding: 3px 8px;
 }
 
-.thumb img {
-    cursor: zoom-in;
+.doc-name {
+    flex: 1;
+    min-width: 0;
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
-.thumb-zoom {
-    position: absolute;
-    left: 6px;
-    bottom: 6px;
-    width: 26px;
-    height: 26px;
-    border-radius: 50%;
-    border: none;
-    background: rgba(0, 0, 0, 0.55);
-    color: #fff;
-    cursor: zoom-in;
+.doc-tools {
     display: flex;
-    align-items: center;
-    justify-content: center;
-    opacity: 0;
-    transition: all var(--transition);
-    backdrop-filter: blur(4px);
+    gap: 6px;
+    flex-shrink: 0;
 }
 
-.thumb:hover .thumb-zoom {
+/* Reset the buttons' old absolute/overlay styling for the in-card toolbar. */
+.doc-tools .thumb-zoom,
+.doc-tools .thumb-remove {
+    position: static;
     opacity: 1;
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--bg-elevated);
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    backdrop-filter: none;
+    transition: all var(--transition);
 }
 
-.thumb-zoom:hover {
-    background: var(--accent);
+.doc-tools .thumb-zoom { cursor: zoom-in; }
+
+.doc-tools .thumb-zoom:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+    background: var(--accent-dim);
+}
+
+.doc-tools .thumb-remove:hover {
+    color: var(--error);
+    border-color: var(--error);
+    background: var(--error-bg);
+}
+
+.doc-image {
+    display: flex;
+    justify-content: center;
+    padding: 16px;
+    background: #f3f6fa;
+}
+
+.doc-image img {
+    display: block;
+    width: auto;
+    max-width: 100%;
+    max-height: 82vh;
+    height: auto;
+    object-fit: contain;
+    border-radius: var(--radius);
+    box-shadow: 0 1px 6px rgba(15, 23, 42, 0.12);
+    cursor: zoom-in;
+}
+
+/* New page just added — flash an outline so the user's click is acknowledged
+   even when the document stack has grown past the fold. */
+.doc-card--flash {
+    animation: docFlash 1.4s ease-out;
+}
+
+@keyframes docFlash {
+    0%, 18% { outline: 2px solid var(--accent); outline-offset: 3px; }
+    100% { outline: 2px solid transparent; outline-offset: 3px; }
+}
+
+/* --- Left-rail action bar: pinned below the rail, always reachable --- */
+.panel-footer {
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 14px 20px;
+    border-top: 1px solid var(--border);
+    background: var(--bg-elevated);
+}
+
+.action-hint {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.04em;
+    color: var(--text-secondary);
 }
 
 /* Sample-cell magnifier: sits top-left so it clears the selected-check badge. */
@@ -651,7 +850,7 @@ main {
 }
 
 /* --- Formatted View (Paper) --- */
-#reportView {
+:is(#reportView, #ocrView) {
     background: var(--paper);
     color: var(--paper-text);
     border-radius: var(--radius);
@@ -666,20 +865,20 @@ main {
     box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.06);
 }
 
-#reportView::-webkit-scrollbar {
+:is(#reportView, #ocrView)::-webkit-scrollbar {
     width: 6px;
 }
 
-#reportView::-webkit-scrollbar-track {
+:is(#reportView, #ocrView)::-webkit-scrollbar-track {
     background: transparent;
 }
 
-#reportView::-webkit-scrollbar-thumb {
+:is(#reportView, #ocrView)::-webkit-scrollbar-thumb {
     background: #cbd5e1;
     border-radius: 3px;
 }
 
-#reportView h1 {
+:is(#reportView, #ocrView) h1 {
     font-family: var(--font-display);
     font-size: 1.8em;
     font-weight: 700;
@@ -690,7 +889,7 @@ main {
     letter-spacing: -0.02em;
 }
 
-#reportView h2 {
+:is(#reportView, #ocrView) h2 {
     font-family: var(--font-display);
     font-size: 1.4em;
     font-weight: 600;
@@ -700,7 +899,7 @@ main {
     color: var(--paper-text);
 }
 
-#reportView h3 {
+:is(#reportView, #ocrView) h3 {
     font-family: var(--font-display);
     font-size: 1.15em;
     font-weight: 600;
@@ -708,22 +907,22 @@ main {
     color: var(--paper-text);
 }
 
-#reportView p {
+:is(#reportView, #ocrView) p {
     margin: 0 0 14px 0;
     line-height: 1.75;
 }
 
-#reportView strong, #reportView b { font-weight: 600; }
-#reportView em { font-style: italic; }
+:is(#reportView, #ocrView) strong, :is(#reportView, #ocrView) b { font-weight: 600; }
+:is(#reportView, #ocrView) em { font-style: italic; }
 
-#reportView table {
+:is(#reportView, #ocrView) table {
     width: 100%;
     border-collapse: collapse;
     margin: 16px 0;
     font-size: 0.9rem;
 }
 
-#reportView th {
+:is(#reportView, #ocrView) th {
     font-weight: 600;
     padding: 8px 12px;
     border: 1px solid #ddd;
@@ -731,23 +930,23 @@ main {
     text-align: left;
 }
 
-#reportView td {
+:is(#reportView, #ocrView) td {
     padding: 8px 12px;
     border: 1px solid #ddd;
 }
 
-#reportView tr:nth-child(2n) {
+:is(#reportView, #ocrView) tr:nth-child(2n) {
     background: #f1f5f9;
 }
 
-#reportView ul, #reportView ol {
+:is(#reportView, #ocrView) ul, :is(#reportView, #ocrView) ol {
     margin: 0 0 14px 0;
     padding-left: 1.8em;
 }
 
-#reportView li { margin: 4px 0; }
+:is(#reportView, #ocrView) li { margin: 4px 0; }
 
-#reportView blockquote {
+:is(#reportView, #ocrView) blockquote {
     margin: 0 0 14px 0;
     padding: 8px 16px;
     color: var(--paper-secondary);
@@ -756,7 +955,7 @@ main {
     border-radius: 0 var(--radius) var(--radius) 0;
 }
 
-#reportView code {
+:is(#reportView, #ocrView) code {
     padding: 2px 6px;
     font-size: 0.88em;
     background: #e2e8f0;
@@ -764,7 +963,7 @@ main {
     font-family: var(--font-mono);
 }
 
-#reportView pre {
+:is(#reportView, #ocrView) pre {
     margin: 0 0 14px 0;
     padding: 16px;
     overflow: auto;
@@ -775,33 +974,33 @@ main {
     border: 1px solid #e2e8f0;
 }
 
-#reportView pre code {
+:is(#reportView, #ocrView) pre code {
     padding: 0;
     background: transparent;
     font-size: 100%;
 }
 
-#reportView hr {
+:is(#reportView, #ocrView) hr {
     height: 1px;
     margin: 24px 0;
     background: #dde4ee;
     border: 0;
 }
 
-#reportView img {
+:is(#reportView, #ocrView) img {
     max-width: 100%;
     height: auto;
     margin: 14px 0;
     border-radius: 4px;
 }
 
-#reportView a {
+:is(#reportView, #ocrView) a {
     color: #3b82f6;
     text-decoration: underline;
     text-underline-offset: 2px;
 }
 
-#reportView a:hover {
+:is(#reportView, #ocrView) a:hover {
     color: var(--accent);
 }
 
@@ -1066,11 +1265,49 @@ main {
 }
 
 /* --- Responsive --- */
-@media (max-width: 768px) {
+/* Tighten the rails before collapsing so the center stage stays dominant. */
+@media (max-width: 1180px) {
+    main {
+        grid-template-columns: minmax(220px, 240px) minmax(320px, 1fr) 6px var(--right-w);
+    }
+}
+
+/* Below this the three columns can't all breathe — stack them and let the
+   page scroll, with the document stage in the middle of the flow. */
+@media (max-width: 920px) {
+    /* Stacked: let the whole page scroll instead of each column internally. */
+    .app {
+        height: auto;
+        overflow: visible;
+    }
+
+    .panel-body {
+        overflow: visible;
+    }
+
     main {
         grid-template-columns: 1fr;
     }
 
+    .col-resizer {
+        display: none;
+    }
+
+    .panel {
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .panel-stage > .panel-body {
+        padding: 18px;
+    }
+
+    .doc-image img {
+        max-height: 70vh;
+    }
+}
+
+@media (max-width: 768px) {
     .topbar {
         padding: 0 16px;
     }
@@ -1083,7 +1320,7 @@ main {
         padding: 36px 16px;
     }
 
-    #reportView {
+    :is(#reportView, #ocrView) {
         padding: 20px;
         max-height: 60vh;
     }
