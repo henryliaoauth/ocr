@@ -13,6 +13,8 @@ every page carries a test-sample footer. Output: test/samples/<category>/.
 """
 
 import os
+import json
+import re
 from PIL import Image, ImageDraw, ImageFont
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "samples")
@@ -164,6 +166,30 @@ def save(img, category, name):
     path = os.path.join(out, name)
     img.save(path, "JPEG", quality=88)
     print("  wrote", os.path.relpath(path, ROOT))
+
+
+def write_manifest(categories):
+    # The frontend reads samples/manifest.json to build the per-category gallery.
+    # It MUST be committed (and deployed) alongside the images, or the whole
+    # "範例資料" section stays hidden on the live site. Regenerate it here from
+    # the files actually on disk so it can never drift out of sync.
+    def num_prefix(fn):
+        m = re.match(r"(\d+)", fn)
+        return int(m.group(1)) if m else 0
+
+    manifest = {}
+    for cat in categories:
+        d = os.path.join(ROOT, cat)
+        if not os.path.isdir(d):
+            continue
+        files = [f for f in os.listdir(d) if f.lower().endswith((".jpg", ".jpeg", ".png"))]
+        manifest[cat] = sorted(files, key=lambda f: (num_prefix(f), f))
+
+    path = os.path.join(ROOT, "manifest.json")
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(manifest, fh, ensure_ascii=False, indent=2)
+        fh.write("\n")
+    print("  wrote manifest.json", {k: len(v) for k, v in manifest.items()})
 
 
 def passbook_richart(category, fname, period, holder, acct, branch, rows):
@@ -618,4 +644,5 @@ if __name__ == "__main__":
     print("家管/退休/自由業 (homemaker) — 林秀琴")
     h_pension(); h_time_deposit(); h_passbook(); h_funds()
     h_realestate(); h_income_list()
+    write_manifest(["salaried", "self_employed", "homemaker"])
     print("done ->", ROOT)

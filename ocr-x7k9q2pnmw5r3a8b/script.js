@@ -6,6 +6,10 @@ class OCRApp {
         this.selectedCategory = 'salaried';
         this.isAnalyzing = false;
         this.abortController = null;
+        // Bundled sample images, listed per category in test/samples/manifest.json.
+        this.sampleManifest = null;
+        this.sampleBase = '/test/samples';
+        this.loadSampleManifest();
 
         // Access token is the first path segment (the slug used to reach this page).
         const slug = window.location.pathname.split('/').filter(Boolean)[0] || '';
@@ -31,6 +35,9 @@ class OCRApp {
         this.errorMessage = document.getElementById('errorMessage');
         this.errorResetBtn = document.getElementById('errorResetBtn');
         this.categorySelect = document.getElementById('categorySelect');
+        this.sampleSection = document.getElementById('sampleSection');
+        this.sampleGrid = document.getElementById('sampleGrid');
+        this.sampleLoadAll = document.getElementById('sampleLoadAll');
         this.statusDot = document.querySelector('.status-dot');
         this.statusText = document.querySelector('.status-text');
         this.reportView = document.getElementById('reportView');
@@ -59,7 +66,17 @@ class OCRApp {
 
         this.categorySelect.addEventListener('change', (e) => {
             this.selectedCategory = e.target.value;
+            this.renderSampleGallery();
         });
+
+        // Sample picker: click a thumbnail to add that sample image.
+        this.sampleGrid.addEventListener('click', (e) => {
+            const cell = e.target.closest('.sample-cell');
+            if (cell && !cell.classList.contains('loading')) {
+                this.addSample(cell.dataset.path, cell.dataset.name);
+            }
+        });
+        this.sampleLoadAll.addEventListener('click', this.loadAllSamples.bind(this));
 
         document.querySelectorAll('.tab-btn').forEach(btn => {
             btn.addEventListener('click', this.switchTab.bind(this));
@@ -141,6 +158,110 @@ class OCRApp {
         } else {
             this.reset();
         }
+        this.syncSampleSelected();
+    }
+
+    // ---- Bundled sample images (test/samples/<category>/...) ----
+
+    async loadSampleManifest() {
+        try {
+            const res = await fetch(`${this.sampleBase}/manifest.json`, { cache: 'no-store' });
+            if (!res.ok) throw new Error(`manifest ${res.status}`);
+            const data = await res.json();
+            // Guard against the SPA catch-all returning index.html as text.
+            if (data && typeof data === 'object') {
+                this.sampleManifest = data;
+                this.renderSampleGallery();
+            }
+        } catch (e) {
+            // No samples available (e.g. host blocks the path) — just hide the section.
+            console.warn('Sample manifest unavailable:', e.message);
+        }
+    }
+
+    sampleDisplayName(filename) {
+        return filename.replace(/^\d+[_-]/, '').replace(/\.[^.]+$/, '');
+    }
+
+    sampleUrl(filename) {
+        return `${this.sampleBase}/${this.selectedCategory}/${encodeURIComponent(filename)}`;
+    }
+
+    renderSampleGallery() {
+        if (!this.sampleManifest) return;
+        const files = this.sampleManifest[this.selectedCategory] || [];
+        if (!files.length) {
+            this.sampleSection.style.display = 'none';
+            return;
+        }
+        this.sampleGrid.innerHTML = files.map((name) => {
+            const url = this.sampleUrl(name);
+            return `
+            <button type="button" class="sample-cell" data-path="${url}" data-name="${this.escapeHtml(name)}" title="${this.escapeHtml(name)}">
+                <img src="${url}" alt="${this.escapeHtml(name)}" loading="lazy">
+                <span class="sample-name">${this.escapeHtml(this.sampleDisplayName(name))}</span>
+                <span class="sample-check">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                </span>
+            </button>`;
+        }).join('');
+        this.sampleSection.style.display = 'block';
+        this.syncSampleSelected();
+    }
+
+    // Reflect which samples are currently queued (matched by their source URL).
+    syncSampleSelected() {
+        const loaded = new Set(this.currentFiles.map((f) => f._sampleKey).filter(Boolean));
+        this.sampleGrid.querySelectorAll('.sample-cell').forEach((cell) => {
+            cell.classList.toggle('selected', loaded.has(cell.dataset.path));
+        });
+    }
+
+    // Toggle a single sample: add it if not queued, remove it if already queued.
+    async addSample(path, name) {
+        const existingIdx = this.currentFiles.findIndex((f) => f._sampleKey === path);
+        if (existingIdx >= 0) {
+            this.removeFile(existingIdx);
+            return;
+        }
+        const cell = this.sampleGrid.querySelector(`.sample-cell[data-path="${CSS.escape(path)}"]`);
+        if (cell) cell.classList.add('loading');
+        try {
+            const file = await this.fetchSampleFile(path, name);
+            this.currentFiles.push(file);
+            await this.renderPreview();
+        } catch (e) {
+            this.showError('範例載入失敗，請稍後再試');
+        } finally {
+            if (cell) cell.classList.remove('loading');
+            this.syncSampleSelected();
+        }
+    }
+
+    async loadAllSamples() {
+        const files = (this.sampleManifest && this.sampleManifest[this.selectedCategory]) || [];
+        for (const name of files) {
+            const url = this.sampleUrl(name);
+            if (this.currentFiles.some((f) => f._sampleKey === url)) continue;
+            try {
+                const file = await this.fetchSampleFile(url, name);
+                this.currentFiles.push(file);
+            } catch (e) { /* skip the ones that fail */ }
+        }
+        if (this.currentFiles.length) await this.renderPreview();
+        this.syncSampleSelected();
+    }
+
+    // Fetch a bundled sample, run it through the same optimize path as uploads,
+    // and tag it with its source URL so the gallery can track selection.
+    async fetchSampleFile(path, name) {
+        const res = await fetch(path, { cache: 'force-cache' });
+        if (!res.ok) throw new Error(`sample ${res.status}`);
+        const blob = await res.blob();
+        const raw = new File([blob], name, { type: blob.type || 'image/jpeg' });
+        const processed = await this.prepareImage(raw, 3 * 1024 * 1024, 2400);
+        processed._sampleKey = path;
+        return processed;
     }
 
     // Downscale (longest side <= maxDim, never upscale) and JPEG-encode, stepping
@@ -586,6 +707,7 @@ class OCRApp {
         this.currentSourceMarkdown = '';
         this.selectedCategory = 'salaried';
         this.categorySelect.value = 'salaried';
+        this.renderSampleGallery();
 
         this.previewGrid.innerHTML = '';
         this.uploadArea.parentElement.style.display = '';

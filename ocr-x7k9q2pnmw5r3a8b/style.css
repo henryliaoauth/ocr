@@ -836,6 +836,124 @@ main {
     box-shadow: 0 0 0 3px rgba(59,130,246,0.1);
 }
 
+/* --- Sample picker --- */
+.sample-section {
+    margin-bottom: 16px;
+}
+
+.sample-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 4px;
+}
+
+.sample-title {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--text);
+}
+
+.sample-load-all {
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 3px 10px;
+    font-family: var(--font-body);
+    font-size: 0.74rem;
+    font-weight: 500;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all var(--transition);
+}
+
+.sample-load-all:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+}
+
+.sample-hint {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    margin: 0 0 8px;
+}
+
+.sample-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+    gap: 8px;
+}
+
+.sample-cell {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg);
+    cursor: pointer;
+    overflow: hidden;
+    transition: all var(--transition);
+    text-align: center;
+}
+
+.sample-cell:hover {
+    border-color: var(--accent);
+    transform: translateY(-1px);
+}
+
+.sample-cell img {
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    object-fit: cover;
+    display: block;
+    background: var(--bg);
+}
+
+.sample-name {
+    font-size: 0.66rem;
+    line-height: 1.3;
+    color: var(--text-muted);
+    padding: 4px 4px 5px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.sample-check {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #fff;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.25);
+}
+
+.sample-cell.selected {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(59,130,246,0.18);
+}
+
+.sample-cell.selected .sample-check {
+    display: flex;
+}
+
+.sample-cell.selected .sample-name {
+    color: var(--accent);
+}
+
+.sample-cell.loading {
+    opacity: 0.55;
+    pointer-events: none;
+}
+
 /* --- Responsive --- */
 @media (max-width: 768px) {
     main {

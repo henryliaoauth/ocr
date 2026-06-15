@@ -2,3 +2,7 @@
 /image.png
 /image copy.png
 /image*.png
+
+# Python bytecode
+__pycache__/
+*.pyc

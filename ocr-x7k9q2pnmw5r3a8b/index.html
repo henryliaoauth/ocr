@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Authme OCR</title>
-    <link rel="stylesheet" href="/ocr-x7k9q2pnmw5r3a8b/style.css?v=5">
+    <link rel="stylesheet" href="/ocr-x7k9q2pnmw5r3a8b/style.css?v=6">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
@@ -52,6 +52,15 @@
                         <option value="self_employed">自營商 / 公司負責人或股東</option>
                         <option value="homemaker">家管 / 退休 / 自由業</option>
                     </select>
+
+                    <div class="sample-section" id="sampleSection" style="display: none;">
+                        <div class="sample-header">
+                            <span class="sample-title">範例資料</span>
+                            <button class="sample-load-all" id="sampleLoadAll" type="button">全部載入</button>
+                        </div>
+                        <p class="sample-hint">點選下方圖片即可加入分析（依分類提供）</p>
+                        <div class="sample-grid" id="sampleGrid"></div>
+                    </div>
 
                     <div class="upload-section">
                         <label class="upload-area" id="uploadArea" for="fileInput">
@@ -160,6 +169,6 @@
         </main>
     </div>
 
-    <script src="/ocr-x7k9q2pnmw5r3a8b/script.js?v=9"></script>
+    <script src="/ocr-x7k9q2pnmw5r3a8b/script.js?v=10"></script>
 </body>
 </html>
