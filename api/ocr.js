@@ -10,8 +10,8 @@ import https from 'node:https';
 // inside one long proxy call, so each request stays well under Vercel's
 // per-invocation limit.
 const API_ORIGIN = 'https://platform-api-933489661561.asia-east1.run.app';
-const EXEC_PATH = '/api/v1/execute/-u2H7HRyN';
-const API_KEY = 'pk_qjS9dIU5_3ayWVzapFnrUw80WwyO7Qotjt43owEUk';
+const EXEC_PATH = '/api/v1/execute/-aBgyZTBy';
+const API_KEY = 'pk_3sTw6ACj_9jcN2pl61ZMTuUNN_APLuEEtcc7O1zMr';
 const ACCESS_TOKEN = 'ocr-x7k9q2pnmw5r3a8b';
 
 const SUBMIT_ATTEMPTS = 3;
