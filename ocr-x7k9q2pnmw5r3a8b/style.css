@@ -294,6 +294,117 @@ main {
     background: var(--error);
 }
 
+.thumb img {
+    cursor: zoom-in;
+}
+
+.thumb-zoom {
+    position: absolute;
+    left: 6px;
+    bottom: 6px;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(0, 0, 0, 0.55);
+    color: #fff;
+    cursor: zoom-in;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: all var(--transition);
+    backdrop-filter: blur(4px);
+}
+
+.thumb:hover .thumb-zoom {
+    opacity: 1;
+}
+
+.thumb-zoom:hover {
+    background: var(--accent);
+}
+
+/* Sample-cell magnifier: sits top-left so it clears the selected-check badge. */
+.sample-zoom {
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.5);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: zoom-in;
+    opacity: 0;
+    transition: all var(--transition);
+    backdrop-filter: blur(4px);
+}
+
+.sample-cell:hover .sample-zoom {
+    opacity: 1;
+}
+
+.sample-zoom:hover {
+    background: var(--accent);
+}
+
+/* Lightbox overlay for enlarged image viewing. */
+.lightbox {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 32px;
+    background: rgba(0, 0, 0, 0.82);
+    backdrop-filter: blur(6px);
+    cursor: zoom-out;
+}
+
+.lightbox.open {
+    display: flex;
+    animation: lightbox-in 0.18s ease;
+}
+
+@keyframes lightbox-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.lightbox img {
+    max-width: 95vw;
+    max-height: 92vh;
+    object-fit: contain;
+    border-radius: var(--radius);
+    box-shadow: 0 12px 48px rgba(0, 0, 0, 0.5);
+}
+
+.lightbox-close {
+    position: fixed;
+    top: 18px;
+    right: 22px;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(255, 255, 255, 0.12);
+    color: #fff;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all var(--transition);
+}
+
+.lightbox-close:hover {
+    background: rgba(255, 255, 255, 0.25);
+}
+
 .btn-add-more {
     display: flex;
     align-items: center;

@@ -41,7 +41,10 @@ class OCRApp {
         this.statusDot = document.querySelector('.status-dot');
         this.statusText = document.querySelector('.status-text');
         this.reportView = document.getElementById('reportView');
+        this.ocrView = document.getElementById('ocrView');
         this.sourceView = document.getElementById('sourceView');
+        this.lightbox = document.getElementById('lightbox');
+        this.lightboxImg = document.getElementById('lightboxImg');
         this.progressFill = document.getElementById('progressFill');
         this.progressPct = document.getElementById('progressPct');
         this.loadingText = document.getElementById('loadingText');
@@ -55,10 +58,12 @@ class OCRApp {
         this.uploadArea.addEventListener('drop', this.handleDrop.bind(this));
         this.fileInput.addEventListener('change', this.handleFileSelect.bind(this));
         this.analyzeBtn.addEventListener('click', this.analyzeImage.bind(this));
-        // Per-thumbnail remove (event delegation on the grid).
+        // Per-thumbnail remove / zoom (event delegation on the grid).
         this.previewGrid.addEventListener('click', (e) => {
-            const btn = e.target.closest('.thumb-remove');
-            if (btn) this.removeFile(Number(btn.dataset.idx));
+            const removeBtn = e.target.closest('.thumb-remove');
+            if (removeBtn) { this.removeFile(Number(removeBtn.dataset.idx)); return; }
+            const zoom = e.target.closest('[data-zoom]');
+            if (zoom) this.openLightbox(zoom.dataset.zoom);
         });
         this.copyBtn.addEventListener('click', this.copyResult.bind(this));
         this.resetBtn.addEventListener('click', this.reset.bind(this));
@@ -69,8 +74,11 @@ class OCRApp {
             this.renderSampleGallery();
         });
 
-        // Sample picker: click a thumbnail to add that sample image.
+        // Sample picker: click a thumbnail to add that sample image; the corner
+        // magnifier opens the full image in the lightbox instead of adding it.
         this.sampleGrid.addEventListener('click', (e) => {
+            const zoom = e.target.closest('.sample-zoom');
+            if (zoom) { this.openLightbox(zoom.dataset.zoom); return; }
             const cell = e.target.closest('.sample-cell');
             if (cell && !cell.classList.contains('loading')) {
                 this.addSample(cell.dataset.path, cell.dataset.name);
@@ -81,6 +89,30 @@ class OCRApp {
         document.querySelectorAll('.tab-btn').forEach(btn => {
             btn.addEventListener('click', this.switchTab.bind(this));
         });
+
+        // Lightbox: click the backdrop (or the image) to close; Esc also closes.
+        if (this.lightbox) {
+            this.lightbox.addEventListener('click', () => this.closeLightbox());
+        }
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && this.lightbox && this.lightbox.classList.contains('open')) {
+                this.closeLightbox();
+            }
+        });
+    }
+
+    openLightbox(src) {
+        if (!src || !this.lightbox) return;
+        this.lightboxImg.src = src;
+        this.lightbox.classList.add('open');
+        document.body.style.overflow = 'hidden';
+    }
+
+    closeLightbox() {
+        if (!this.lightbox) return;
+        this.lightbox.classList.remove('open');
+        this.lightboxImg.src = '';
+        document.body.style.overflow = '';
     }
 
     setStatus(state, text) {
@@ -199,6 +231,14 @@ class OCRApp {
             return `
             <button type="button" class="sample-cell" data-path="${url}" data-name="${this.escapeHtml(name)}" title="${this.escapeHtml(name)}">
                 <img src="${url}" alt="${this.escapeHtml(name)}" loading="lazy">
+                <span class="sample-zoom" data-zoom="${url}" title="放大檢視">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="11" cy="11" r="7"></circle>
+                        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                        <line x1="11" y1="8" x2="11" y2="14"></line>
+                        <line x1="8" y1="11" x2="14" y2="11"></line>
+                    </svg>
+                </span>
                 <span class="sample-name">${this.escapeHtml(this.sampleDisplayName(name))}</span>
                 <span class="sample-check">
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
@@ -316,11 +356,36 @@ class OCRApp {
         });
     }
 
+    // Vercel serverless functions reject any request body over ~4.5MB (413). The
+    // images go up as base64 JSON (~1.37x the raw bytes), so the LIMIT IS ON THE
+    // COMBINED payload, not per image. Per-image optimization isn't enough — two
+    // 3MB images already blow the cap. Here we enforce a shared raw-byte budget
+    // across all queued images and re-encode (downscale + lower quality) only when
+    // the total would overflow. 3.0MB raw -> ~4.1MB base64, safely under the cap.
+    async packWithinBudget(files) {
+        const TOTAL_RAW_BUDGET = 3.0 * 1024 * 1024;
+        const totalSize = files.reduce((s, f) => s + (f.size || 0), 0);
+        if (totalSize <= TOTAL_RAW_BUDGET) return files;
+        // Split the budget evenly; tighten the dimension cap as the count grows so
+        // each image actually converges to its (smaller) share.
+        const per = Math.floor(TOTAL_RAW_BUDGET / files.length);
+        const maxDim = files.length <= 2 ? 2200 : (files.length <= 4 ? 1800 : 1500);
+        return Promise.all(files.map((f) => this.prepareImage(f, per, maxDim)));
+    }
+
     async renderPreview() {
         const urls = await Promise.all(this.currentFiles.map((f) => this.fileToDataURL(f)));
         this.previewGrid.innerHTML = urls.map((src, i) => `
             <div class="thumb">
-                <img src="${src}" alt="Preview ${i + 1}">
+                <img src="${src}" alt="Preview ${i + 1}" data-zoom="${src}" title="點擊放大檢視">
+                <button class="thumb-zoom" data-zoom="${src}" title="放大檢視">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="11" cy="11" r="7"></circle>
+                        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                        <line x1="11" y1="8" x2="11" y2="14"></line>
+                        <line x1="8" y1="11" x2="14" y2="11"></line>
+                    </svg>
+                </button>
                 <button class="thumb-remove" data-idx="${i}" title="移除這張">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -409,7 +474,8 @@ class OCRApp {
         // tradeoff is no partial output (the poll returns until fully done).
         // Splitting submit and each poll into separate short requests keeps every
         // call well under Vercel's per-invocation time limit.
-        const images = await Promise.all(files.map((f) => this.fileToImagePart(f)));
+        const packed = await this.packWithinBudget(files);
+        const images = await Promise.all(packed.map((f) => this.fileToImagePart(f)));
         const stopProgress = this.startSimulatedProgress();
         const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -508,6 +574,9 @@ class OCRApp {
 
     // Map raw upstream error strings to clearer Chinese messages.
     friendlyError(msg) {
+        if (/\b413\b|content too large|payload too large|request entity too large/i.test(msg)) {
+            return '圖片總量過大：上傳的圖片加總超過伺服器上限（約 4.5MB）。請減少圖片張數，或改用較小／壓縮過的圖片再試。';
+        }
         if (/timeout after 30000|30000ms/i.test(msg)) {
             return '分析逾時：此工作流在平台端執行超過 30 秒上限而被中止。請改用較小／較清晰的圖片，或在平台端縮短工作流（減少 agent 步驟、換較快的模型），或改用非同步執行。';
         }
@@ -559,9 +628,14 @@ class OCRApp {
 
             // Envelope format from workflow
             if (data && data.report && data.report.markdown) {
+                const source = data.source_markdown || '';
                 return {
-                    reportMarkdown: data.report.markdown,
-                    sourceMarkdown: data.source_markdown || ''
+                    // The workflow appends the raw OCR (as a "原始文件" section) to the
+                    // end of the report markdown. That same text already comes back
+                    // separately as source_markdown and is shown in the 原文 OCR tab,
+                    // so strip it here to keep 報告 = analysis only.
+                    reportMarkdown: this.stripEmbeddedSource(data.report.markdown, source),
+                    sourceMarkdown: source
                 };
             }
             // Fallback: plain OCR text (no structured analysis from workflow)
@@ -578,6 +652,26 @@ class OCRApp {
 
     escapeHtml(s) {
         return String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+    }
+
+    // Remove the trailing raw-OCR block that the workflow appends to the report
+    // (a "### 原始文件" section, preceded by a horizontal-rule divider). The same
+    // text is returned separately as source_markdown, so the 報告 tab should hold
+    // only the analysis. Falls back to cutting where the source text begins if the
+    // section heading is ever absent.
+    stripEmbeddedSource(reportMd, sourceMd) {
+        if (!reportMd) return reportMd;
+        let cut = reportMd.search(/#{1,6}[ \t]*原始文件/);
+        if (cut < 0 && sourceMd) {
+            const anchor = sourceMd.split('\n').map((l) => l.trim()).find((l) => l.length > 6);
+            if (anchor) {
+                const i = reportMd.indexOf(anchor);
+                if (i > 0) cut = i;
+            }
+        }
+        if (cut < 0) return reportMd;
+        // Drop a trailing divider (--- / *** / ___) that separated the section.
+        return reportMd.slice(0, cut).replace(/\n+(?:-{3,}|\*{3,}|_{3,})[ \t]*\n*\s*$/, '\n').trimEnd();
     }
 
     parseMarkdownToHTML(markdown) {
@@ -616,14 +710,18 @@ class OCRApp {
         this.emptyState.style.display = 'none';
         this.errorSection.style.display = 'none';
 
-        // 原文 OCR shows the raw markdown source (unrendered). If the workflow
-        // returns no separate source_markdown, fall back to the report markdown
-        // so this tab always holds the original markdown.
+        // Three tabs over the OCR markdown: 報告 (analysis, rendered), OCR (the raw
+        // OCR markdown rendered to HTML so tables/headings display), and 原文 Markdown
+        // (the same source as plain unrendered text). If the workflow returns no
+        // separate source_markdown, fall back to the report markdown.
         const rawMarkdown = sourceMarkdown || reportMarkdown || '';
         this.currentReportMarkdown = reportMarkdown;
         this.currentSourceMarkdown = rawMarkdown;
 
         this.reportView.innerHTML = this.parseMarkdownToHTML(reportMarkdown);
+        this.ocrView.innerHTML = rawMarkdown
+            ? this.parseMarkdownToHTML(rawMarkdown)
+            : '<p style="color:var(--text-muted)">（無原文）</p>';
         this.sourceView.innerHTML = rawMarkdown
             ? `<pre class="raw-markdown">${this.escapeHtml(rawMarkdown)}</pre>`
             : '<p style="color:var(--text-muted)">（無原文）</p>';
@@ -631,10 +729,11 @@ class OCRApp {
         // Reset to report tab
         document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.view === 'report'));
         this.reportView.classList.add('active');
+        this.ocrView.classList.remove('active');
         this.sourceView.classList.remove('active');
 
         if (window.MathJax) {
-            window.MathJax.typesetPromise([this.reportView]).catch((e) => {
+            window.MathJax.typesetPromise([this.reportView, this.ocrView]).catch((e) => {
                 console.error('MathJax rendering error:', e);
             });
         }
@@ -650,11 +749,13 @@ class OCRApp {
         e.target.classList.add('active');
 
         this.reportView.classList.toggle('active', targetView === 'report');
+        this.ocrView.classList.toggle('active', targetView === 'ocr');
         this.sourceView.classList.toggle('active', targetView === 'source');
 
-        // Only the report is rendered; the source tab is raw markdown, so leave it alone.
-        if (window.MathJax && targetView === 'report') {
-            window.MathJax.typesetPromise([this.reportView]).catch((e) => {
+        // 報告 and OCR are rendered HTML (may contain math); 原文 Markdown is raw text.
+        if (window.MathJax && targetView !== 'source') {
+            const el = targetView === 'ocr' ? this.ocrView : this.reportView;
+            window.MathJax.typesetPromise([el]).catch((e) => {
                 console.error('MathJax rendering error:', e);
             });
         }
@@ -719,6 +820,7 @@ class OCRApp {
         this.emptyState.style.display = '';
 
         this.reportView.innerHTML = '';
+        this.ocrView.innerHTML = '';
         this.sourceView.innerHTML = '';
 
         this.setStatus('ready', 'Ready');

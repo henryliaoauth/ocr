@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Authme OCR</title>
-    <link rel="stylesheet" href="/ocr-x7k9q2pnmw5r3a8b/style.css?v=6">
+    <link rel="stylesheet" href="/ocr-x7k9q2pnmw5r3a8b/style.css?v=7">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
@@ -104,7 +104,8 @@
                     <span class="panel-label">Output</span>
                     <div class="result-tabs" id="resultTabs" style="display: none;">
                         <button class="tab-btn active" data-view="report">報告</button>
-                        <button class="tab-btn" data-view="source">原文 OCR</button>
+                        <button class="tab-btn" data-view="ocr">OCR</button>
+                        <button class="tab-btn" data-view="source">原文 Markdown</button>
                     </div>
                 </div>
                 <div class="panel-body">
@@ -137,6 +138,7 @@
                     <div class="result-section" id="resultSection" style="display: none;">
                         <div class="result-content">
                             <div id="reportView" class="result-view active"></div>
+                            <div id="ocrView" class="result-view"></div>
                             <div id="sourceView" class="result-view"></div>
                         </div>
                         <div class="result-actions">
@@ -169,6 +171,16 @@
         </main>
     </div>
 
-    <script src="/ocr-x7k9q2pnmw5r3a8b/script.js?v=10"></script>
+    <div class="lightbox" id="lightbox">
+        <button class="lightbox-close" id="lightboxClose" type="button" aria-label="關閉">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+        </button>
+        <img id="lightboxImg" alt="放大檢視">
+    </div>
+
+    <script src="/ocr-x7k9q2pnmw5r3a8b/script.js?v=13"></script>
 </body>
 </html>
