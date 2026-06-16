@@ -807,6 +807,7 @@ main {
 /* --- Results --- */
 .result-section {
     flex: 1;
+    min-height: 0;
     display: flex;
     flex-direction: column;
     gap: 12px;
@@ -820,6 +821,7 @@ main {
 
 .result-content {
     flex: 1;
+    min-height: 0;
     position: relative;
 }
 
@@ -1019,10 +1021,25 @@ main {
     border: 1px solid var(--border);
 }
 
+/* Single scroll on desktop: the active result view is the only scroller, while
+   the output body and the Copy/Reset bar stay fixed (no nested scrollbars).
+   The min-height:300px / max-height:calc above are overridden to fill the flex
+   height; this is lifted in the stacked layout (≤920px) below. */
+.panel-output > .panel-body {
+    overflow: hidden;
+}
+
+:is(#reportView, #ocrView), #sourceView {
+    min-height: 0;
+    max-height: none;
+    height: 100%;
+}
+
 /* --- Action Buttons --- */
 .result-actions {
     display: flex;
     gap: 8px;
+    flex-shrink: 0;
 }
 
 .btn-action {
@@ -1281,7 +1298,15 @@ main {
         overflow: visible;
     }
 
-    .panel-body {
+    .panel-body,
+    .panel-output > .panel-body {
+        overflow: visible;
+    }
+
+    /* Stacked: views expand and the page scrolls as one — no inner scroller. */
+    :is(#reportView, #ocrView), #sourceView {
+        height: auto;
+        max-height: none;
         overflow: visible;
     }
 
@@ -1322,11 +1347,9 @@ main {
 
     :is(#reportView, #ocrView) {
         padding: 20px;
-        max-height: 60vh;
     }
 
     #sourceView {
-        max-height: 60vh;
         padding: 16px;
     }
 
