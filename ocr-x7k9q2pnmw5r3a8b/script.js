@@ -803,16 +803,26 @@ class OCRApp {
         return String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
     }
 
-    // If the whole string is wrapped in a single fenced code block
-    // (```/~~~, optionally with a language tag like ```markdown), unwrap it so
-    // the markdown inside renders normally instead of as a verbatim code block.
-    // Only strips when the fence encloses the ENTIRE content (a mid-string close
-    // makes the pattern fail), so genuine inline code blocks are left intact.
+    // The workflow/LLM sometimes wraps markdown in fenced code blocks (```/~~~,
+    // often ```markdown), so marked renders it verbatim (#, | shown literally).
+    // It may be the whole string, or one fence per document section (the section
+    // heading sits OUTSIDE the fence). Since OCR output is plain document
+    // markdown — never real source code — we simply unwrap fences:
+    //   1) if a single fence encloses everything, return its inner content;
+    //   2) otherwise strip any standalone fence-marker lines, leaving the
+    //      markdown inside to render (tables/headings).
     stripOuterFence(md) {
         if (!md) return md;
         const t = md.trim();
-        const m = t.match(/^(`{3,}|~{3,})[^\n`]*\n([\s\S]*?)\n?\1\s*$/);
-        return m ? m[2] : md;
+        const whole = t.match(/^(`{3,}|~{3,})[^\n`]*\n([\s\S]*?)\n?\1\s*$/);
+        if (whole) return whole[2];
+        if (/^[ \t]*(`{3,}|~{3,})/m.test(md)) {
+            return md
+                .replace(/^[ \t]*(`{3,}|~{3,})[^\n]*\n?/gm, '')
+                .replace(/\n{3,}/g, '\n\n')
+                .trim();
+        }
+        return md;
     }
 
     // Remove the trailing raw-OCR block that the workflow appends to the report
