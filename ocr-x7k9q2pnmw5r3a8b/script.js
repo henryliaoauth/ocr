@@ -364,16 +364,33 @@ class OCRApp {
 
     async loadAllSamples() {
         const files = (this.sampleManifest && this.sampleManifest[this.selectedCategory]) || [];
-        for (const name of files) {
-            const url = this.sampleUrl(name);
-            if (this.currentFiles.some((f) => f._sampleKey === url)) continue;
-            try {
-                const file = await this.fetchSampleFile(url, name);
-                this.currentFiles.push(file);
-            } catch (e) { /* skip the ones that fail */ }
+        const pending = files
+            .map((name) => ({ name, url: this.sampleUrl(name) }))
+            .filter(({ url }) => !this.currentFiles.some((f) => f._sampleKey === url));
+        if (!pending.length) return;
+
+        // Fetch + optimize every sample concurrently (was sequential, so the wait
+        // was the sum of all decodes/encodes). Preserve manifest order on insert.
+        const setCellLoading = (url, on) => {
+            const cell = this.sampleGrid.querySelector(`.sample-cell[data-path="${CSS.escape(url)}"]`);
+            if (cell) cell.classList.toggle('loading', on);
+        };
+        this.sampleLoadAll.disabled = true;
+        const origLabel = this.sampleLoadAll.textContent;
+        this.sampleLoadAll.textContent = '載入中…';
+        pending.forEach(({ url }) => setCellLoading(url, true));
+        try {
+            const loaded = await Promise.all(
+                pending.map(({ url, name }) => this.fetchSampleFile(url, name).catch(() => null))
+            );
+            for (const file of loaded) if (file) this.currentFiles.push(file);
+            if (this.currentFiles.length) await this.renderPreview(true);
+        } finally {
+            pending.forEach(({ url }) => setCellLoading(url, false));
+            this.sampleLoadAll.disabled = false;
+            this.sampleLoadAll.textContent = origLabel;
+            this.syncSampleSelected();
         }
-        if (this.currentFiles.length) await this.renderPreview(true);
-        this.syncSampleSelected();
     }
 
     // Fetch a bundled sample, run it through the same optimize path as uploads,

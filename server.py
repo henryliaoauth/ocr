@@ -16,8 +16,8 @@ import sys
 import os
 
 API_ORIGIN = "https://platform-api-933489661561.asia-east1.run.app"
-EXEC_PATH = "/api/v1/execute/-aBgyZTBy"
-API_KEY = "pk_3sTw6ACj_9jcN2pl61ZMTuUNN_APLuEEtcc7O1zMr"
+EXEC_PATH = "/api/v1/execute/-UQKiiEK8"
+API_KEY = "pk_rXhTijye_rTBVqkWdxVWosFrxqvLohvLKcJgaXwVT"
 ACCESS_TOKEN = "ocr-x7k9q2pnmw5r3a8b"
 
 REQUEST_TIMEOUT = 30  # per HTTP call to the platform
