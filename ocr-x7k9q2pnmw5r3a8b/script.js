@@ -803,6 +803,18 @@ class OCRApp {
         return String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
     }
 
+    // If the whole string is wrapped in a single fenced code block
+    // (```/~~~, optionally with a language tag like ```markdown), unwrap it so
+    // the markdown inside renders normally instead of as a verbatim code block.
+    // Only strips when the fence encloses the ENTIRE content (a mid-string close
+    // makes the pattern fail), so genuine inline code blocks are left intact.
+    stripOuterFence(md) {
+        if (!md) return md;
+        const t = md.trim();
+        const m = t.match(/^(`{3,}|~{3,})[^\n`]*\n([\s\S]*?)\n?\1\s*$/);
+        return m ? m[2] : md;
+    }
+
     // Remove the trailing raw-OCR block that the workflow appends to the report
     // (a "### 原始文件" section, preceded by a horizontal-rule divider). The same
     // text is returned separately as source_markdown, so the 報告 tab should hold
@@ -863,11 +875,15 @@ class OCRApp {
         // OCR markdown rendered to HTML so tables/headings display), and 原文 Markdown
         // (the same source as plain unrendered text). If the workflow returns no
         // separate source_markdown, fall back to the report markdown.
-        const rawMarkdown = sourceMarkdown || reportMarkdown || '';
-        this.currentReportMarkdown = reportMarkdown;
+        // The workflow/LLM sometimes wraps the whole markdown in a ```markdown
+        // fence; marked then (correctly) renders it as one code block, so the
+        // raw #/| syntax shows verbatim. Strip an enclosing fence so it renders.
+        const report = this.stripOuterFence(reportMarkdown);
+        const rawMarkdown = this.stripOuterFence(sourceMarkdown || reportMarkdown || '');
+        this.currentReportMarkdown = report;
         this.currentSourceMarkdown = rawMarkdown;
 
-        this.reportView.innerHTML = this.parseMarkdownToHTML(reportMarkdown);
+        this.reportView.innerHTML = this.parseMarkdownToHTML(report);
         this.ocrView.innerHTML = rawMarkdown
             ? this.parseMarkdownToHTML(rawMarkdown)
             : '<p style="color:var(--text-muted)">（無原文）</p>';
