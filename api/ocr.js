@@ -10,9 +10,22 @@ import https from 'node:https';
 // inside one long proxy call, so each request stays well under Vercel's
 // per-invocation limit.
 const API_ORIGIN = 'https://platform-api-933489661561.asia-east1.run.app';
-const EXEC_PATH = '/api/v1/execute/-UQKiiEK8';
-const API_KEY = 'pk_rXhTijye_rTBVqkWdxVWosFrxqvLohvLKcJgaXwVT';
-const ACCESS_TOKEN = 'ocr-x7k9q2pnmw5r3a8b';
+
+// Each public path (slug) maps to its own workflow + API key. The slug arrives
+// as the X-Access-Token header (the frontend sets it from the first URL path
+// segment), doubling as both router key and access token — so keep slugs
+// unguessable. To add a path: deploy a frontend folder named after the slug and
+// add a matching entry here.
+const ROUTES = {
+  'ocr-x7k9q2pnmw5r3a8b': {
+    execPath: '/api/v1/execute/-UQKiiEK8',
+    apiKey: 'pk_rXhTijye_rTBVqkWdxVWosFrxqvLohvLKcJgaXwVT',
+  },
+  'ocr-7p3k9w2mx8qz': {
+    execPath: '/api/v1/execute/ocr-nptJ4oKt',
+    apiKey: 'pk_6mkLFEdt_8qEB7okIyREm6AqTCk1mTlzGATlJCkpN',
+  },
+};
 
 const SUBMIT_ATTEMPTS = 3;
 const REQUEST_TIMEOUT_MS = 30_000;   // per HTTP call to the platform
@@ -75,7 +88,11 @@ export default async function handler(req, res) {
 
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  if (req.headers['x-access-token'] !== ACCESS_TOKEN) {
+  // Resolve the slug -> { execPath, apiKey } route. Both submit and poll use
+  // the same token, so each path always talks to its own workflow with its
+  // own key (don't fall back to a shared key, or poll would cross workflows).
+  const route = ROUTES[req.headers['x-access-token']];
+  if (!route) {
     return res.status(404).json({ error: 'Not found' });
   }
 
@@ -87,7 +104,7 @@ export default async function handler(req, res) {
     }
     let poll;
     try {
-      poll = await httpsRequest('GET', API_ORIGIN + statusPath, { 'X-API-Key': API_KEY });
+      poll = await httpsRequest('GET', API_ORIGIN + statusPath, { 'X-API-Key': route.apiKey });
     } catch (e) {
       return res.status(502).json({ error: 'poll_failed', message: e.message });
     }
@@ -129,8 +146,8 @@ export default async function handler(req, res) {
   let submit, lastErr;
   for (let attempt = 1; attempt <= SUBMIT_ATTEMPTS; attempt++) {
     try {
-      submit = await httpsRequest('POST', API_ORIGIN + EXEC_PATH, {
-        'X-API-Key': API_KEY,
+      submit = await httpsRequest('POST', API_ORIGIN + route.execPath, {
+        'X-API-Key': route.apiKey,
         'X-Execution-Mode': 'async',
         'Content-Type': 'application/json',
         'Content-Length': payload.length,
