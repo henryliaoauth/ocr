@@ -19,11 +19,11 @@ const API_ORIGIN = 'https://platform-api-933489661561.asia-east1.run.app';
 const ROUTES = {
   'ocr-x7k9q2pnmw5r3a8b': {
     execPath: '/api/v1/execute/-UQKiiEK8',
-    apiKey: 'pk_rXhTijye_rTBVqkWdxVWosFrxqvLohvLKcJgaXwVT',
+    apiKey: 'pk_zO0bVWeO_1HSnolRoKtAt6qWEd8ryAW44JZ9F3U7s',
   },
   'ocr-7p3k9w2mx8qz': {
     execPath: '/api/v1/execute/ocr-nptJ4oKt',
-    apiKey: 'pk_6mkLFEdt_8qEB7okIyREm6AqTCk1mTlzGATlJCkpN',
+    apiKey: 'pk_zO0bVWeO_1HSnolRoKtAt6qWEd8ryAW44JZ9F3U7s',
   },
 };
 
